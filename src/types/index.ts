@@ -2,7 +2,11 @@
 
 export type WaveguideType = 'rectangular' | 'circular' | 'coaxial';
 
-export type ModeType = 'TE' | 'TM' | 'TEM' | 'HE' | 'EH';
+// Types de modes supportés:
+// - TE (Transverse Électrique): Ez = 0, Hz ≠ 0
+// - TM (Transverse Magnétique): Hz = 0, Ez ≠ 0
+// - TEM (Transverse EM): Ez = Hz = 0 (uniquement pour guide coaxial)
+export type ModeType = 'TE' | 'TM' | 'TEM';
 
 export interface Mode {
   type: ModeType;

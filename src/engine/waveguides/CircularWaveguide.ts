@@ -4,7 +4,11 @@ import { besselJ, besselJPrime, getBesselJZero, getBesselJPrimeZero } from '../m
 
 /**
  * Guide d'onde circulaire
- * Supporte les modes TE, TM et hybrides (HE, EH)
+ * Supporte les modes TE et TM
+ *
+ * Convention de notation: TE_nm et TM_nm où
+ * - n = ordre azimutal (nombre de variations en φ)
+ * - m = ordre radial (m-ième racine de la fonction de Bessel)
  */
 export class CircularWaveguide extends Waveguide {
   readonly radius: number;
@@ -22,22 +26,15 @@ export class CircularWaveguide extends Waveguide {
   getCutoffWavenumber(mode: Mode): number {
     const { type, m, n } = mode;
 
-    // n est l'ordre azimutal, m est l'ordre radial (p dans certaines notations)
+    // n = ordre azimutal, m = ordre radial (m-ième racine)
     if (type === 'TE') {
-      // kc = χ'nm / a où χ'nm est la m-ième racine de J'n(x) = 0
+      // kc = χ'_nm / a où χ'_nm est la m-ième racine de J'_n(x) = 0
       const chi = getBesselJPrimeZero(n, m);
       return chi / this.radius;
     }
 
     if (type === 'TM') {
-      // kc = χnm / a où χnm est la m-ième racine de Jn(x) = 0
-      const chi = getBesselJZero(n, m);
-      return chi / this.radius;
-    }
-
-    if (type === 'HE' || type === 'EH') {
-      // Modes hybrides - approximation simplifiée
-      // En réalité, ces modes dépendent du rapport εr
+      // kc = χ_nm / a où χ_nm est la m-ième racine de J_n(x) = 0
       const chi = getBesselJZero(n, m);
       return chi / this.radius;
     }
@@ -48,39 +45,29 @@ export class CircularWaveguide extends Waveguide {
   isModeSupported(mode: Mode): boolean {
     const { type, m, n } = mode;
 
+    // Seuls les modes TE et TM sont supportés dans un guide creux
     if (type === 'TE' || type === 'TM') {
       return n >= 0 && m >= 1;
     }
 
-    if (type === 'HE' || type === 'EH') {
-      return n >= 1 && m >= 1;
-    }
-
+    // Les modes hybrides HE/EH nécessitent un guide diélectrique (non supporté)
     return false;
   }
 
   getAvailableModes(): Mode[] {
     const modes: Mode[] = [];
 
-    // Modes TE
+    // Modes TE (le mode dominant est TE11)
     for (let n = 0; n <= 3; n++) {
       for (let m = 1; m <= 3; m++) {
         modes.push({ type: 'TE', m, n });
       }
     }
 
-    // Modes TM
+    // Modes TM (TM01 est le premier mode TM)
     for (let n = 0; n <= 3; n++) {
       for (let m = 1; m <= 3; m++) {
         modes.push({ type: 'TM', m, n });
-      }
-    }
-
-    // Modes hybrides
-    for (let n = 1; n <= 2; n++) {
-      for (let m = 1; m <= 2; m++) {
-        modes.push({ type: 'HE', m, n });
-        modes.push({ type: 'EH', m, n });
       }
     }
 
@@ -109,10 +96,16 @@ export class CircularWaveguide extends Waveguide {
       return { E: { x: 0, y: 0, z: 0 }, H: { x: 0, y: 0, z: 0 } };
     }
 
+    // Mode évanescent: champs décroissants
+    if (!params.isPropagatif) {
+      return { E: { x: 0, y: 0, z: 0 }, H: { x: 0, y: 0, z: 0 } };
+    }
+
     const kc = this.getCutoffWavenumber(mode);
     const beta = params.propagationConstant;
     const omega = 2 * Math.PI * frequency;
 
+    // Phase de propagation: cos(ωt - βz) pour onde progressive vers +z
     const phaseFactor = Math.cos(omega * time - beta * z);
 
     if (type === 'TE') {
@@ -123,15 +116,22 @@ export class CircularWaveguide extends Waveguide {
       return this.getTMFieldDistribution(
         rho, phi, x, y, n, m, kc, beta, omega, phaseFactor
       );
-    } else if (type === 'HE' || type === 'EH') {
-      return this.getHybridFieldDistribution(
-        rho, phi, x, y, n, m, kc, beta, omega, phaseFactor, type
-      );
     }
 
     return { E: { x: 0, y: 0, z: 0 }, H: { x: 0, y: 0, z: 0 } };
   }
 
+  /**
+   * Distribution des champs pour les modes TE (Ez = 0)
+   *
+   * Hz = H0 * Jn(kc*ρ) * cos(n*φ) * cos(ωt - βz)
+   *
+   * Composantes transverses dérivées de Hz via les équations de Maxwell:
+   * Eρ = (jωμ/kc²) * (n/ρ) * Jn(kc*ρ) * sin(n*φ)
+   * Eφ = (jωμ/kc) * J'n(kc*ρ) * cos(n*φ)
+   * Hρ = (jβ/kc) * J'n(kc*ρ) * cos(n*φ)
+   * Hφ = (jβ/kc²) * (n/ρ) * Jn(kc*ρ) * sin(n*φ)
+   */
   private getTEFieldDistribution(
     rho: number,
     phi: number,
@@ -147,153 +147,128 @@ export class CircularWaveguide extends Waveguide {
     const chi = getBesselJPrimeZero(n, p);
     const kcRho = kc * rho;
 
-    // Hz = Jn(kc*ρ) * cos(n*φ) * cos(ωt - βz)
-    const Hz = besselJ(n, kcRho) * Math.cos(n * phi) * phaseFactor;
+    // Amplitude à la limite du guide pour normalisation
+    const JnAtBoundary = besselJ(n, chi);
+    const normFactor = 1 / (Math.abs(JnAtBoundary) > 1e-10 ? JnAtBoundary : 1);
 
-    const factor = 1 / (kc * kc);
+    // Hz normalisé
+    const Jn = besselJ(n, kcRho) * normFactor;
+    const JnPrime = besselJPrime(n, kcRho) * normFactor;
+    const Hz = Jn * Math.cos(n * phi) * phaseFactor;
 
-    // Composantes en coordonnées cylindriques
-    // Eρ = (jωμ/kc²) * (n/ρ) * Jn(kc*ρ) * sin(n*φ)
-    const Erho = rho > 0 ?
-      factor * omega * CONSTANTS.mu0 * (n / rho) *
-      besselJ(n, kcRho) * Math.sin(n * phi) * phaseFactor : 0;
+    // Impédance du mode TE: ZTE = ωμ/β
+    const ZTE = (omega * CONSTANTS.mu0) / beta;
 
-    // Eφ = -(jωμ/kc) * J'n(kc*ρ) * cos(n*φ)
-    const Ephi = -factor * omega * CONSTANTS.mu0 * kc *
-      besselJPrime(n, kcRho) * Math.cos(n * phi) * phaseFactor;
+    // Composantes transverses (le j devient un déphasage de 90°,
+    // représenté ici en utilisant phaseFactor pour la partie réelle)
+    const commonFactor = 1 / (kc * kc);
 
-    // Hρ = (jβ/kc) * J'n(kc*ρ) * cos(n*φ)
-    const Hrho = factor * beta * kc *
-      besselJPrime(n, kcRho) * Math.cos(n * phi) * phaseFactor;
+    // Eρ = (ωμ/kc²) * (n/ρ) * Jn * sin(n*φ)
+    const Erho = rho > 1e-10 ?
+      commonFactor * omega * CONSTANTS.mu0 * (n / rho) * Jn * Math.sin(n * phi) * phaseFactor : 0;
 
-    // Hφ = -(jβ/kc²) * (n/ρ) * Jn(kc*ρ) * sin(n*φ)
-    const Hphi = rho > 0 ?
-      -factor * beta * (n / rho) *
-      besselJ(n, kcRho) * Math.sin(n * phi) * phaseFactor : 0;
+    // Eφ = -(ωμ/kc) * J'n * cos(n*φ)  (le signe - vient de la dérivée ∂Hz/∂ρ)
+    const Ephi = -commonFactor * omega * CONSTANTS.mu0 * kc * JnPrime * Math.cos(n * phi) * phaseFactor;
 
-    // Conversion en coordonnées cartésiennes
-    const cosPhi = rho > 0 ? x / rho : 1;
-    const sinPhi = rho > 0 ? y / rho : 0;
+    // Hρ = (β/kc) * J'n * cos(n*φ)
+    const Hrho = commonFactor * beta * kc * JnPrime * Math.cos(n * phi) * phaseFactor;
 
-    const norm = 1 / chi;
+    // Hφ = -(β/kc²) * (n/ρ) * Jn * sin(n*φ)
+    const Hphi = rho > 1e-10 ?
+      -commonFactor * beta * (n / rho) * Jn * Math.sin(n * phi) * phaseFactor : 0;
+
+    // Conversion coordonnées cylindriques -> cartésiennes
+    const cosPhi = rho > 1e-10 ? x / rho : 1;
+    const sinPhi = rho > 1e-10 ? y / rho : 0;
+
+    // Normalisation pour la visualisation (basée sur l'impédance)
+    const visualNorm = 1 / (ZTE * kc);
 
     return {
       E: {
-        x: (Erho * cosPhi - Ephi * sinPhi) * norm,
-        y: (Erho * sinPhi + Ephi * cosPhi) * norm,
-        z: 0,
+        x: (Erho * cosPhi - Ephi * sinPhi) * visualNorm,
+        y: (Erho * sinPhi + Ephi * cosPhi) * visualNorm,
+        z: 0,  // Ez = 0 pour mode TE
       },
       H: {
-        x: (Hrho * cosPhi - Hphi * sinPhi) * norm,
-        y: (Hrho * sinPhi + Hphi * cosPhi) * norm,
-        z: Hz * norm,
+        x: (Hrho * cosPhi - Hphi * sinPhi) * visualNorm,
+        y: (Hrho * sinPhi + Hphi * cosPhi) * visualNorm,
+        z: Hz * visualNorm,
       },
     };
   }
 
+  /**
+   * Distribution des champs pour les modes TM (Hz = 0)
+   *
+   * Ez = E0 * Jn(kc*ρ) * cos(n*φ) * cos(ωt - βz)
+   *
+   * Composantes transverses dérivées de Ez via les équations de Maxwell:
+   * Eρ = -(jβ/kc) * J'n(kc*ρ) * cos(n*φ)
+   * Eφ = (jβ/kc²) * (n/ρ) * Jn(kc*ρ) * sin(n*φ)
+   * Hρ = (jωε/kc²) * (n/ρ) * Jn(kc*ρ) * sin(n*φ)
+   * Hφ = (jωε/kc) * J'n(kc*ρ) * cos(n*φ)
+   */
   private getTMFieldDistribution(
     rho: number,
     phi: number,
     x: number,
     y: number,
     n: number,
-    p: number,
+    _p: number,
     kc: number,
     beta: number,
     omega: number,
     phaseFactor: number
   ): FieldVector {
-    const chi = getBesselJZero(n, p);
     const kcRho = kc * rho;
 
-    // Ez = Jn(kc*ρ) * cos(n*φ) * cos(ωt - βz)
-    const Ez = besselJ(n, kcRho) * Math.cos(n * phi) * phaseFactor;
+    // Pour TM, Jn(χ) = 0 à la frontière, donc on normalise par la valeur max
+    // La valeur max de Jn est environ 1 pour n=0, moins pour n>0
+    const JnMax = n === 0 ? 1 : 0.5;
+    const normFactor = 1 / JnMax;
 
-    const factor = 1 / (kc * kc);
+    // Ez normalisé
+    const Jn = besselJ(n, kcRho) * normFactor;
+    const JnPrime = besselJPrime(n, kcRho) * normFactor;
+    const Ez = Jn * Math.cos(n * phi) * phaseFactor;
 
-    // Eρ = -(jβ/kc) * J'n(kc*ρ) * cos(n*φ)
-    const Erho = -factor * beta * kc *
-      besselJPrime(n, kcRho) * Math.cos(n * phi) * phaseFactor;
+    // Impédance du mode TM: ZTM = β/(ωε)
+    const ZTM = beta / (omega * CONSTANTS.eps0);
 
-    // Eφ = (jβ/kc²) * (n/ρ) * Jn(kc*ρ) * sin(n*φ)
-    const Ephi = rho > 0 ?
-      factor * beta * (n / rho) *
-      besselJ(n, kcRho) * Math.sin(n * phi) * phaseFactor : 0;
+    const commonFactor = 1 / (kc * kc);
 
-    // Hρ = (jωε/kc²) * (n/ρ) * Jn(kc*ρ) * sin(n*φ)
-    const Hrho = rho > 0 ?
-      factor * omega * CONSTANTS.eps0 * (n / rho) *
-      besselJ(n, kcRho) * Math.sin(n * phi) * phaseFactor : 0;
+    // Eρ = -(β/kc) * J'n * cos(n*φ)
+    const Erho = -commonFactor * beta * kc * JnPrime * Math.cos(n * phi) * phaseFactor;
 
-    // Hφ = (jωε/kc) * J'n(kc*ρ) * cos(n*φ)
-    const Hphi = factor * omega * CONSTANTS.eps0 * kc *
-      besselJPrime(n, kcRho) * Math.cos(n * phi) * phaseFactor;
+    // Eφ = (β/kc²) * (n/ρ) * Jn * sin(n*φ)
+    const Ephi = rho > 1e-10 ?
+      commonFactor * beta * (n / rho) * Jn * Math.sin(n * phi) * phaseFactor : 0;
 
-    const cosPhi = rho > 0 ? x / rho : 1;
-    const sinPhi = rho > 0 ? y / rho : 0;
+    // Hρ = (ωε/kc²) * (n/ρ) * Jn * sin(n*φ)
+    const Hrho = rho > 1e-10 ?
+      commonFactor * omega * CONSTANTS.eps0 * (n / rho) * Jn * Math.sin(n * phi) * phaseFactor : 0;
 
-    const norm = 1 / chi;
+    // Hφ = (ωε/kc) * J'n * cos(n*φ)
+    const Hphi = commonFactor * omega * CONSTANTS.eps0 * kc * JnPrime * Math.cos(n * phi) * phaseFactor;
+
+    // Conversion coordonnées cylindriques -> cartésiennes
+    const cosPhi = rho > 1e-10 ? x / rho : 1;
+    const sinPhi = rho > 1e-10 ? y / rho : 0;
+
+    // Normalisation pour la visualisation
+    const visualNorm = 1 / (ZTM * kc);
 
     return {
       E: {
-        x: (Erho * cosPhi - Ephi * sinPhi) * norm,
-        y: (Erho * sinPhi + Ephi * cosPhi) * norm,
-        z: Ez * norm,
+        x: (Erho * cosPhi - Ephi * sinPhi) * visualNorm,
+        y: (Erho * sinPhi + Ephi * cosPhi) * visualNorm,
+        z: Ez * visualNorm,
       },
       H: {
-        x: (Hrho * cosPhi - Hphi * sinPhi) * norm,
-        y: (Hrho * sinPhi + Hphi * cosPhi) * norm,
-        z: 0,
-      },
-    };
-  }
-
-  private getHybridFieldDistribution(
-    rho: number,
-    phi: number,
-    x: number,
-    y: number,
-    n: number,
-    p: number,
-    kc: number,
-    beta: number,
-    _omega: number,
-    phaseFactor: number,
-    type: 'HE' | 'EH'
-  ): FieldVector {
-    // Approximation simplifiée des modes hybrides
-    // En réalité, ils sont une combinaison de TE et TM
-    const chi = getBesselJZero(n, p);
-    const kcRho = kc * rho;
-
-    // Facteur de mélange (simplifié)
-    const mixFactor = type === 'HE' ? 0.7 : 0.3;
-
-    const Ez = mixFactor * besselJ(n, kcRho) * Math.cos(n * phi) * phaseFactor;
-    const Hz = (1 - mixFactor) * besselJ(n, kcRho) * Math.cos(n * phi) * phaseFactor;
-
-    const factor = 1 / (kc * kc);
-
-    const Erho = -factor * beta * kc * mixFactor *
-      besselJPrime(n, kcRho) * Math.cos(n * phi) * phaseFactor;
-    const Hrho = factor * beta * kc * (1 - mixFactor) *
-      besselJPrime(n, kcRho) * Math.cos(n * phi) * phaseFactor;
-
-    const cosPhi = rho > 0 ? x / rho : 1;
-    const sinPhi = rho > 0 ? y / rho : 0;
-
-    const norm = 1 / chi;
-
-    return {
-      E: {
-        x: Erho * cosPhi * norm,
-        y: Erho * sinPhi * norm,
-        z: Ez * norm,
-      },
-      H: {
-        x: Hrho * cosPhi * norm,
-        y: Hrho * sinPhi * norm,
-        z: Hz * norm,
+        x: (Hrho * cosPhi - Hphi * sinPhi) * visualNorm,
+        y: (Hrho * sinPhi + Hphi * cosPhi) * visualNorm,
+        z: 0,  // Hz = 0 pour mode TM
       },
     };
   }

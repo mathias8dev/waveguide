@@ -151,20 +151,22 @@ export function PropagationCanvas({
       }
     }
 
-    // Dessiner le champ magnétique (H) - déphasé de 90° spatialement pour modes TE
+    // Dessiner le champ magnétique (H)
+    // Dans une onde EM guidée, E et H sont en phase temporellement
+    // mais perpendiculaires spatialement. Ici on montre les amplitudes
+    // qui oscillent ensemble (en phase).
     if (showMagnetic) {
       ctx.strokeStyle = '#3b82f6';
       ctx.lineWidth = 2.5;
       ctx.beginPath();
 
-      // Pour les modes TE, H est en phase avec E (même direction de propagation)
-      // Mais les composantes transverses sont déphasées
-      const phaseShift = mode.type === 'TE' ? 0 : Math.PI / 2;
-
+      // H est en phase avec E (même variation temporelle et spatiale)
+      // L'amplitude relative E/H est déterminée par l'impédance du mode
       for (let x = 0; x <= drawWidth; x++) {
         const z = (x / drawWidth) * zLength;
-        const phase = omega * time - beta * z + phaseShift;
-        const H = amplitude * 0.8 * Math.sin(phase);
+        const phase = omega * time - beta * z;
+        // H légèrement plus petit pour différencier visuellement
+        const H = amplitude * 0.7 * Math.sin(phase);
         const y = height / 2 - H;
 
         if (x === 0) {

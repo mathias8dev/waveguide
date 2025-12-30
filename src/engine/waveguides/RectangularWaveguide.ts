@@ -3,7 +3,17 @@ import { Mode, FieldVector, CONSTANTS, RectangularParams } from '@/types';
 
 /**
  * Guide d'onde rectangulaire
- * Supporte les modes TE et TM
+ *
+ * Convention: dimensions a × b où a ≥ b (a est la dimension large)
+ * Le mode dominant est TE10 (le plus bas en fréquence de coupure)
+ *
+ * Modes TE (Transverse Électrique): Ez = 0, Hz ≠ 0
+ *   - TE_mn avec m ≥ 0, n ≥ 0, mais pas m = n = 0
+ *   - fc = (c/2) * √((m/a)² + (n/b)²)
+ *
+ * Modes TM (Transverse Magnétique): Hz = 0, Ez ≠ 0
+ *   - TM_mn avec m ≥ 1, n ≥ 1
+ *   - Même formule de fc que TE
  */
 export class RectangularWaveguide extends Waveguide {
   readonly a: number; // Largeur (dimension grande)
@@ -34,16 +44,16 @@ export class RectangularWaveguide extends Waveguide {
     const { type, m, n } = mode;
 
     if (type === 'TE') {
-      // TE: m et n >= 0, mais pas les deux à 0
+      // TE: m ≥ 0, n ≥ 0, mais pas les deux à 0
       return m >= 0 && n >= 0 && !(m === 0 && n === 0);
     }
 
     if (type === 'TM') {
-      // TM: m et n >= 1
+      // TM: m ≥ 1, n ≥ 1 (les deux doivent être non nuls)
       return m >= 1 && n >= 1;
     }
 
-    // TEM et modes hybrides non supportés
+    // TEM non supporté dans un guide rectangulaire creux
     return false;
   }
 
@@ -82,7 +92,7 @@ export class RectangularWaveguide extends Waveguide {
     const { type, m, n } = mode;
     const params = this.getCalculatedParams(frequency, mode);
 
-    // Décalage pour centrer le guide (x, y de -a/2 à a/2 et -b/2 à b/2)
+    // Coordonnées locales: origine au coin (0,0), x ∈ [0,a], y ∈ [0,b]
     const xLocal = x + this.a / 2;
     const yLocal = y + this.b / 2;
 
@@ -91,27 +101,40 @@ export class RectangularWaveguide extends Waveguide {
       return { E: { x: 0, y: 0, z: 0 }, H: { x: 0, y: 0, z: 0 } };
     }
 
+    // Mode évanescent
+    if (!params.isPropagatif) {
+      return { E: { x: 0, y: 0, z: 0 }, H: { x: 0, y: 0, z: 0 } };
+    }
+
     const kc = this.getCutoffWavenumber(mode);
     const beta = params.propagationConstant;
     const omega = 2 * Math.PI * frequency;
 
-    // Facteur de phase temporelle et spatiale
+    // Phase de propagation: cos(ωt - βz) pour onde progressive vers +z
     const phaseFactor = Math.cos(omega * time - beta * z);
-    const phaseFactorSin = Math.sin(omega * time - beta * z);
 
     if (type === 'TE') {
-      return this.getTEFieldDistribution(
-        xLocal, yLocal, m, n, kc, beta, omega, phaseFactor, phaseFactorSin
-      );
+      return this.getTEFieldDistribution(xLocal, yLocal, m, n, kc, beta, omega, phaseFactor);
     } else if (type === 'TM') {
-      return this.getTMFieldDistribution(
-        xLocal, yLocal, m, n, kc, beta, omega, phaseFactor, phaseFactorSin
-      );
+      return this.getTMFieldDistribution(xLocal, yLocal, m, n, kc, beta, omega, phaseFactor);
     }
 
     return { E: { x: 0, y: 0, z: 0 }, H: { x: 0, y: 0, z: 0 } };
   }
 
+  /**
+   * Distribution des champs pour les modes TE (Ez = 0)
+   *
+   * Fonction génératrice: Hz = H0 * cos(mπx/a) * cos(nπy/b) * e^(j(ωt-βz))
+   *
+   * Les composantes transverses sont dérivées via les équations de Maxwell:
+   *   Ex = (jωμ/kc²) * (∂Hz/∂y) = (jωμ/kc²) * ky * cos(kx·x) * sin(ky·y)
+   *   Ey = -(jωμ/kc²) * (∂Hz/∂x) = -(jωμ/kc²) * kx * sin(kx·x) * cos(ky·y)
+   *   Hx = (jβ/kc²) * (∂Hz/∂x) = (jβ/kc²) * kx * sin(kx·x) * cos(ky·y)
+   *   Hy = (jβ/kc²) * (∂Hz/∂y) = (jβ/kc²) * ky * cos(kx·x) * sin(ky·y)
+   *
+   * Le facteur j introduit un déphasage de 90° entre Hz et les composantes transverses.
+   */
   private getTEFieldDistribution(
     x: number,
     y: number,
@@ -120,43 +143,69 @@ export class RectangularWaveguide extends Waveguide {
     kc: number,
     beta: number,
     omega: number,
-    phaseFactor: number,
-    _phaseFactorSin: number
+    phaseFactor: number
   ): FieldVector {
     const kx = (m * Math.PI) / this.a;
     const ky = (n * Math.PI) / this.b;
 
-    // Hz = H0 * cos(kx*x) * cos(ky*y) * cos(ωt - βz)
-    const Hz = Math.cos(kx * x) * Math.cos(ky * y) * phaseFactor;
+    // Fonctions trigonométriques de base
+    const cosKxX = Math.cos(kx * x);
+    const sinKxX = Math.sin(kx * x);
+    const cosKyY = Math.cos(ky * y);
+    const sinKyY = Math.sin(ky * y);
 
-    // Composantes transverses (normalisées)
-    const factor = 1 / (kc * kc);
+    // Hz = cos(kx·x) * cos(ky·y) * cos(ωt - βz)
+    const Hz = cosKxX * cosKyY * phaseFactor;
 
-    // Ex = (jωμ/kc²) * ky * cos(kx*x) * sin(ky*y)
-    const Ex = factor * omega * CONSTANTS.mu0 * ky *
-               Math.cos(kx * x) * Math.sin(ky * y) * phaseFactor;
+    // Facteur commun 1/kc²
+    const invKc2 = 1 / (kc * kc);
 
-    // Ey = -(jωμ/kc²) * kx * sin(kx*x) * cos(ky*y)
-    const Ey = -factor * omega * CONSTANTS.mu0 * kx *
-               Math.sin(kx * x) * Math.cos(ky * y) * phaseFactor;
+    // Impédance du mode TE: ZTE = ωμ/β
+    const ZTE = (omega * CONSTANTS.mu0) / beta;
 
-    // Hx = (jβ/kc²) * kx * sin(kx*x) * cos(ky*y)
-    const Hx = factor * beta * kx *
-               Math.sin(kx * x) * Math.cos(ky * y) * phaseFactor;
+    // Composantes transverses du champ E
+    // Ex = (ωμ·ky/kc²) * cos(kx·x) * sin(ky·y)
+    const Ex = invKc2 * omega * CONSTANTS.mu0 * ky * cosKxX * sinKyY * phaseFactor;
 
-    // Hy = (jβ/kc²) * ky * cos(kx*x) * sin(ky*y)
-    const Hy = factor * beta * ky *
-               Math.cos(kx * x) * Math.sin(ky * y) * phaseFactor;
+    // Ey = -(ωμ·kx/kc²) * sin(kx·x) * cos(ky·y)
+    const Ey = -invKc2 * omega * CONSTANTS.mu0 * kx * sinKxX * cosKyY * phaseFactor;
 
-    // Normalisation pour la visualisation
-    const norm = 1e-6;
+    // Composantes transverses du champ H (perpendiculaires à E)
+    // Hx = (β·kx/kc²) * sin(kx·x) * cos(ky·y)
+    const Hx = invKc2 * beta * kx * sinKxX * cosKyY * phaseFactor;
+
+    // Hy = (β·ky/kc²) * cos(kx·x) * sin(ky·y)
+    const Hy = invKc2 * beta * ky * cosKxX * sinKyY * phaseFactor;
+
+    // Normalisation basée sur l'impédance du mode
+    // Pour une visualisation cohérente: E/H ~ ZTE
+    const visualNorm = 1 / (ZTE * kc);
 
     return {
-      E: { x: Ex * norm, y: Ey * norm, z: 0 },
-      H: { x: Hx * norm, y: Hy * norm, z: Hz * norm },
+      E: {
+        x: Ex * visualNorm,
+        y: Ey * visualNorm,
+        z: 0,  // Ez = 0 pour mode TE
+      },
+      H: {
+        x: Hx * visualNorm,
+        y: Hy * visualNorm,
+        z: Hz * visualNorm,
+      },
     };
   }
 
+  /**
+   * Distribution des champs pour les modes TM (Hz = 0)
+   *
+   * Fonction génératrice: Ez = E0 * sin(mπx/a) * sin(nπy/b) * e^(j(ωt-βz))
+   *
+   * Les composantes transverses sont dérivées via les équations de Maxwell:
+   *   Ex = -(jβ/kc²) * (∂Ez/∂x) = -(jβ/kc²) * kx * cos(kx·x) * sin(ky·y)
+   *   Ey = -(jβ/kc²) * (∂Ez/∂y) = -(jβ/kc²) * ky * sin(kx·x) * cos(ky·y)
+   *   Hx = (jωε/kc²) * (∂Ez/∂y) = (jωε/kc²) * ky * sin(kx·x) * cos(ky·y)
+   *   Hy = -(jωε/kc²) * (∂Ez/∂x) = -(jωε/kc²) * kx * cos(kx·x) * sin(ky·y)
+   */
   private getTMFieldDistribution(
     x: number,
     y: number,
@@ -165,38 +214,54 @@ export class RectangularWaveguide extends Waveguide {
     kc: number,
     beta: number,
     omega: number,
-    phaseFactor: number,
-    _phaseFactorSin: number
+    phaseFactor: number
   ): FieldVector {
     const kx = (m * Math.PI) / this.a;
     const ky = (n * Math.PI) / this.b;
 
-    // Ez = E0 * sin(kx*x) * sin(ky*y) * cos(ωt - βz)
-    const Ez = Math.sin(kx * x) * Math.sin(ky * y) * phaseFactor;
+    // Fonctions trigonométriques de base
+    const cosKxX = Math.cos(kx * x);
+    const sinKxX = Math.sin(kx * x);
+    const cosKyY = Math.cos(ky * y);
+    const sinKyY = Math.sin(ky * y);
 
-    const factor = 1 / (kc * kc);
+    // Ez = sin(kx·x) * sin(ky·y) * cos(ωt - βz)
+    const Ez = sinKxX * sinKyY * phaseFactor;
 
-    // Ex = -(jβ/kc²) * kx * cos(kx*x) * sin(ky*y)
-    const Ex = -factor * beta * kx *
-               Math.cos(kx * x) * Math.sin(ky * y) * phaseFactor;
+    // Facteur commun 1/kc²
+    const invKc2 = 1 / (kc * kc);
 
-    // Ey = -(jβ/kc²) * ky * sin(kx*x) * cos(ky*y)
-    const Ey = -factor * beta * ky *
-               Math.sin(kx * x) * Math.cos(ky * y) * phaseFactor;
+    // Impédance du mode TM: ZTM = β/(ωε)
+    const ZTM = beta / (omega * CONSTANTS.eps0);
 
-    // Hx = (jωε/kc²) * ky * sin(kx*x) * cos(ky*y)
-    const Hx = factor * omega * CONSTANTS.eps0 * ky *
-               Math.sin(kx * x) * Math.cos(ky * y) * phaseFactor;
+    // Composantes transverses du champ E
+    // Ex = -(β·kx/kc²) * cos(kx·x) * sin(ky·y)
+    const Ex = -invKc2 * beta * kx * cosKxX * sinKyY * phaseFactor;
 
-    // Hy = -(jωε/kc²) * kx * cos(kx*x) * sin(ky*y)
-    const Hy = -factor * omega * CONSTANTS.eps0 * kx *
-               Math.cos(kx * x) * Math.sin(ky * y) * phaseFactor;
+    // Ey = -(β·ky/kc²) * sin(kx·x) * cos(ky·y)
+    const Ey = -invKc2 * beta * ky * sinKxX * cosKyY * phaseFactor;
 
-    const norm = 1e-6;
+    // Composantes transverses du champ H
+    // Hx = (ωε·ky/kc²) * sin(kx·x) * cos(ky·y)
+    const Hx = invKc2 * omega * CONSTANTS.eps0 * ky * sinKxX * cosKyY * phaseFactor;
+
+    // Hy = -(ωε·kx/kc²) * cos(kx·x) * sin(ky·y)
+    const Hy = -invKc2 * omega * CONSTANTS.eps0 * kx * cosKxX * sinKyY * phaseFactor;
+
+    // Normalisation basée sur l'impédance du mode
+    const visualNorm = 1 / (ZTM * kc);
 
     return {
-      E: { x: Ex * norm, y: Ey * norm, z: Ez * norm },
-      H: { x: Hx * norm, y: Hy * norm, z: 0 },
+      E: {
+        x: Ex * visualNorm,
+        y: Ey * visualNorm,
+        z: Ez * visualNorm,
+      },
+      H: {
+        x: Hx * visualNorm,
+        y: Hy * visualNorm,
+        z: 0,  // Hz = 0 pour mode TM
+      },
     };
   }
 }

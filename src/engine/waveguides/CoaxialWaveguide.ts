@@ -4,11 +4,20 @@ import { besselJ, besselY, besselJPrime, besselYPrime } from '../math/bessel';
 
 /**
  * Guide d'onde coaxial
- * Supporte le mode TEM (fondamental) et les modes TE/TM d'ordre supérieur
+ *
+ * Supporte principalement le mode TEM (fondamental) qui est le mode
+ * le plus utilisé dans les câbles coaxiaux.
+ *
+ * Le mode TEM existe à toutes les fréquences (pas de fréquence de coupure).
+ * Les modes TE et TM ont des fréquences de coupure et nécessitent la
+ * résolution d'équations transcendantales impliquant les fonctions de Bessel.
+ *
+ * Pour les modes d'ordre supérieur, on utilise une approximation basée sur
+ * les conditions aux limites coaxiales.
  */
 export class CoaxialWaveguide extends Waveguide {
-  readonly innerRadius: number; // Rayon du conducteur central
-  readonly outerRadius: number; // Rayon du conducteur externe
+  readonly innerRadius: number; // Rayon du conducteur central (a)
+  readonly outerRadius: number; // Rayon du conducteur externe (b)
 
   constructor(params: Omit<CoaxialParams, 'type'>) {
     super();
@@ -30,28 +39,55 @@ export class CoaxialWaveguide extends Waveguide {
 
   getCutoffWavenumber(mode: Mode): number {
     const { type, m, n } = mode;
+    const a = this.innerRadius;
+    const b = this.outerRadius;
 
     if (type === 'TEM') {
       return 0;
     }
 
-    // Pour les modes TE et TM dans un guide coaxial,
-    // on doit résoudre des équations transcendantes complexes
-    // Approximation: kc ≈ π(m) / (b - a) pour les premiers modes
-    const meanRadius = (this.outerRadius + this.innerRadius) / 2;
-    const gap = this.outerRadius - this.innerRadius;
+    // Pour les modes TE et TM coaxiaux, le nombre d'onde de coupure kc
+    // est solution de l'équation transcendantale:
+    // TE: J'n(kc*a)*Y'n(kc*b) = J'n(kc*b)*Y'n(kc*a)
+    // TM: Jn(kc*a)*Yn(kc*b) = Jn(kc*b)*Yn(kc*a)
+    //
+    // Approximation pour le premier mode TE11:
+    // kc ≈ 2/(a+b) pour le mode TE11 (approximation du rayon moyen)
+    //
+    // Pour une approximation plus générale:
+    // Le mode dominant TE est TE11 avec fc ≈ c/(π(a+b))
+
+    const meanRadius = (a + b) / 2;
+    const ratio = b / a;
 
     if (type === 'TE') {
-      // Approximation pour TEn1
-      return (n * Math.PI) / gap + m / meanRadius;
+      // Approximation pour les modes TE_nm
+      // Le premier mode TE (n=1, m=1) a kc ≈ 2/(a+b)
+      // Pour les modes d'ordre supérieur, on utilise une approximation
+      if (n === 0) {
+        // TE0m : modes axisymétriques
+        return (m * Math.PI) / (b - a);
+      } else {
+        // TEnm : approximation basée sur le rayon moyen
+        return Math.sqrt(
+          Math.pow(n / meanRadius, 2) +
+          Math.pow((m * Math.PI) / (b - a), 2)
+        );
+      }
     }
 
     if (type === 'TM') {
-      // Approximation pour TMnm
-      return Math.sqrt(
-        Math.pow((m * Math.PI) / gap, 2) +
-        Math.pow(n / meanRadius, 2)
-      );
+      // TM0m : les premiers modes TM sont les TM01, TM02, etc.
+      if (n === 0) {
+        // Pour TM01, kc ≈ π/(b-a) * correction pour la géométrie coaxiale
+        return (m * Math.PI) / (b - a) * (1 + 0.1 * (ratio - 1));
+      } else {
+        // TMnm avec n > 0
+        return Math.sqrt(
+          Math.pow(n / meanRadius, 2) +
+          Math.pow((m * Math.PI) / (b - a), 2)
+        );
+      }
     }
 
     return 0;
@@ -61,7 +97,7 @@ export class CoaxialWaveguide extends Waveguide {
     const { type, m, n } = mode;
 
     if (type === 'TEM') {
-      // Mode TEM unique: TEM00
+      // Mode TEM unique: TEM (m=0, n=0)
       return m === 0 && n === 0;
     }
 
@@ -77,14 +113,14 @@ export class CoaxialWaveguide extends Waveguide {
       { type: 'TEM', m: 0, n: 0 }, // Mode fondamental
     ];
 
-    // Modes TE
+    // Modes TE (les plus courants sont TE11, TE01, TE21)
     for (let n = 0; n <= 2; n++) {
       for (let m = 1; m <= 2; m++) {
         modes.push({ type: 'TE', m, n });
       }
     }
 
-    // Modes TM
+    // Modes TM (les plus courants sont TM01, TM11)
     for (let n = 0; n <= 2; n++) {
       for (let m = 1; m <= 2; m++) {
         modes.push({ type: 'TM', m, n });
@@ -98,9 +134,9 @@ export class CoaxialWaveguide extends Waveguide {
 
   /**
    * Impédance caractéristique du mode TEM
+   * Z0 = (η0 / 2π) * ln(b/a)
    */
   getCharacteristicImpedance(): number {
-    // Z0 = (η0 / 2π) * ln(b/a)
     return (CONSTANTS.eta0 / (2 * Math.PI)) *
       Math.log(this.outerRadius / this.innerRadius);
   }
@@ -117,23 +153,31 @@ export class CoaxialWaveguide extends Waveguide {
 
     // Conversion en coordonnées cylindriques
     const rho = Math.sqrt(x * x + y * y);
-    const phi = Math.atan2(y, x);
 
     // Vérifier si on est dans le guide (entre les deux conducteurs)
     if (rho < this.innerRadius || rho > this.outerRadius) {
       return { E: { x: 0, y: 0, z: 0 }, H: { x: 0, y: 0, z: 0 } };
     }
 
+    const phi = Math.atan2(y, x);
     const params = this.getCalculatedParams(frequency, mode);
+
+    // Pour le mode TEM, β = ω/c (pas de dispersion)
+    // Pour les autres modes, utiliser la constante de propagation calculée
     const beta = type === 'TEM' ?
       (2 * Math.PI * frequency) / CONSTANTS.c :
       params.propagationConstant;
-    const omega = 2 * Math.PI * frequency;
 
+    // Mode évanescent pour TE/TM
+    if (type !== 'TEM' && !params.isPropagatif) {
+      return { E: { x: 0, y: 0, z: 0 }, H: { x: 0, y: 0, z: 0 } };
+    }
+
+    const omega = 2 * Math.PI * frequency;
     const phaseFactor = Math.cos(omega * time - beta * z);
 
     if (type === 'TEM') {
-      return this.getTEMFieldDistribution(rho, x, y, beta, omega, phaseFactor);
+      return this.getTEMFieldDistribution(rho, x, y, phaseFactor);
     } else if (type === 'TE') {
       return this.getTEFieldDistribution(
         rho, phi, x, y, mode.m, mode.n, beta, omega, phaseFactor
@@ -147,59 +191,84 @@ export class CoaxialWaveguide extends Waveguide {
     return { E: { x: 0, y: 0, z: 0 }, H: { x: 0, y: 0, z: 0 } };
   }
 
+  /**
+   * Distribution des champs pour le mode TEM
+   *
+   * Le mode TEM est le mode fondamental du guide coaxial.
+   * Les champs sont purement transverses et radiaux:
+   *
+   * E_ρ = V0 / (ρ * ln(b/a)) * cos(ωt - βz)
+   * H_φ = V0 / (ρ * Z0 * ln(b/a)) * cos(ωt - βz)  où Z0 = η0*ln(b/a)/(2π)
+   *
+   * Les champs varient en 1/ρ, typique du potentiel cylindrique.
+   */
   private getTEMFieldDistribution(
     rho: number,
     x: number,
     y: number,
-    _beta: number,
-    _omega: number,
     phaseFactor: number
   ): FieldVector {
-    // Mode TEM: champs purement transverses
-    // Eρ = V0 / (ρ * ln(b/a)) * cos(ωt - βz)
-    // Hφ = I0 / (2πρ) * cos(ωt - βz)
+    const a = this.innerRadius;
+    const b = this.outerRadius;
+    const logRatio = Math.log(b / a);
 
-    const logRatio = Math.log(this.outerRadius / this.innerRadius);
+    // Normalisation: on fixe le champ E à la surface interne à 1 V/m
+    // E(a) = V0/(a*ln(b/a)) = 1  =>  V0 = a*ln(b/a)
+    const V0 = a * logRatio;
 
-    // Amplitude normalisée
-    const Erho = (1 / (rho * logRatio)) * phaseFactor;
-    const Hphi = (1 / (2 * Math.PI * rho)) * phaseFactor;
+    // Champ électrique radial: E_ρ = V0 / (ρ * ln(b/a))
+    const Erho = (V0 / (rho * logRatio)) * phaseFactor;
+
+    // Champ magnétique azimutal: H_φ = E_ρ / η0 (relation TEM)
+    // En mode TEM: E/H = η0 (impédance de l'espace libre)
+    const Hphi = Erho / CONSTANTS.eta0;
 
     // Conversion en coordonnées cartésiennes
     const cosPhi = x / rho;
     const sinPhi = y / rho;
 
+    // Normalisation pour visualisation
+    const visualNorm = 1;
+
     return {
       E: {
-        x: Erho * cosPhi,
-        y: Erho * sinPhi,
-        z: 0,
+        x: Erho * cosPhi * visualNorm,
+        y: Erho * sinPhi * visualNorm,
+        z: 0,  // Pas de composante axiale en mode TEM
       },
       H: {
-        x: -Hphi * sinPhi,
-        y: Hphi * cosPhi,
-        z: 0,
+        x: -Hphi * sinPhi * visualNorm,
+        y: Hphi * cosPhi * visualNorm,
+        z: 0,  // Pas de composante axiale en mode TEM
       },
     };
   }
 
+  /**
+   * Distribution des champs pour les modes TE (Ez = 0)
+   *
+   * Pour les modes TE coaxiaux, Hz ≠ 0 et les champs transverses
+   * sont dérivés de Hz. La fonction radiale est une combinaison
+   * de Jn et Yn pour satisfaire les conditions aux limites.
+   */
   private getTEFieldDistribution(
     rho: number,
     phi: number,
     x: number,
     y: number,
-    p: number,
+    m: number,
     n: number,
     beta: number,
     omega: number,
     phaseFactor: number
   ): FieldVector {
-    const kc = this.getCutoffWavenumber({ type: 'TE', m: p, n });
-    const kcRho = kc * rho;
+    const kc = this.getCutoffWavenumber({ type: 'TE', m, n });
     const a = this.innerRadius;
+
+    const kcRho = kc * rho;
     const kcA = kc * a;
 
-    // Combinaison de fonctions de Bessel pour satisfaire les conditions aux limites
+    // Fonction radiale R(ρ) satisfaisant R'(a) = R'(b) = 0
     // R(ρ) = Jn(kc*ρ)*Y'n(kc*a) - J'n(kc*a)*Yn(kc*ρ)
     const Jn = besselJ(n, kcRho);
     const Yn = besselY(n, kcRho);
@@ -207,63 +276,79 @@ export class CoaxialWaveguide extends Waveguide {
     const YnPrimeA = besselYPrime(n, kcA);
 
     const R = Jn * YnPrimeA - JnPrimeA * Yn;
+
+    // Dérivée de R par rapport à ρ
+    const JnPrime = besselJPrime(n, kcRho);
+    const YnPrime = besselYPrime(n, kcRho);
+    const RPrime = (JnPrime * YnPrimeA - JnPrimeA * YnPrime) * kc;
+
+    // Hz = R(ρ) * cos(n*φ) * cos(ωt - βz)
     const Hz = R * Math.cos(n * phi) * phaseFactor;
 
+    // Impédance TE: ZTE = ωμ/β
+    const ZTE = (omega * CONSTANTS.mu0) / beta;
     const factor = 1 / (kc * kc);
 
-    const Erho = rho > 0 ?
+    // Composantes transverses
+    const Erho = rho > 1e-10 ?
       factor * omega * CONSTANTS.mu0 * (n / rho) * R *
       Math.sin(n * phi) * phaseFactor : 0;
 
-    const JnPrime = besselJPrime(n, kcRho);
-    const YnPrime = besselYPrime(n, kcRho);
-    const RPrime = JnPrime * YnPrimeA - JnPrimeA * YnPrime;
+    const Ephi = -factor * omega * CONSTANTS.mu0 * RPrime *
+      Math.cos(n * phi) * phaseFactor / kc;
 
-    const Ephi = -factor * omega * CONSTANTS.mu0 * kc * RPrime *
-      Math.cos(n * phi) * phaseFactor;
+    const Hrho = factor * beta * RPrime *
+      Math.cos(n * phi) * phaseFactor / kc;
 
-    const Hrho = factor * beta * kc * RPrime *
-      Math.cos(n * phi) * phaseFactor;
-
-    const Hphi = rho > 0 ?
+    const Hphi = rho > 1e-10 ?
       -factor * beta * (n / rho) * R *
       Math.sin(n * phi) * phaseFactor : 0;
 
-    const cosPhi = rho > 0 ? x / rho : 1;
-    const sinPhi = rho > 0 ? y / rho : 0;
+    // Conversion en coordonnées cartésiennes
+    const cosPhi = rho > 1e-10 ? x / rho : 1;
+    const sinPhi = rho > 1e-10 ? y / rho : 0;
 
-    const norm = 0.1;
+    // Normalisation pour visualisation
+    const visualNorm = 1 / (ZTE * kc);
 
     return {
       E: {
-        x: (Erho * cosPhi - Ephi * sinPhi) * norm,
-        y: (Erho * sinPhi + Ephi * cosPhi) * norm,
+        x: (Erho * cosPhi - Ephi * sinPhi) * visualNorm,
+        y: (Erho * sinPhi + Ephi * cosPhi) * visualNorm,
         z: 0,
       },
       H: {
-        x: (Hrho * cosPhi - Hphi * sinPhi) * norm,
-        y: (Hrho * sinPhi + Hphi * cosPhi) * norm,
-        z: Hz * norm,
+        x: (Hrho * cosPhi - Hphi * sinPhi) * visualNorm,
+        y: (Hrho * sinPhi + Hphi * cosPhi) * visualNorm,
+        z: Hz * visualNorm,
       },
     };
   }
 
+  /**
+   * Distribution des champs pour les modes TM (Hz = 0)
+   *
+   * Pour les modes TM coaxiaux, Ez ≠ 0 et les champs transverses
+   * sont dérivés de Ez. La fonction radiale satisfait Ez(a) = Ez(b) = 0.
+   */
   private getTMFieldDistribution(
     rho: number,
     phi: number,
     x: number,
     y: number,
-    p: number,
+    m: number,
     n: number,
     beta: number,
     omega: number,
     phaseFactor: number
   ): FieldVector {
-    const kc = this.getCutoffWavenumber({ type: 'TM', m: p, n });
-    const kcRho = kc * rho;
+    const kc = this.getCutoffWavenumber({ type: 'TM', m, n });
     const a = this.innerRadius;
+
+    const kcRho = kc * rho;
     const kcA = kc * a;
 
+    // Fonction radiale R(ρ) satisfaisant R(a) = R(b) = 0
     // R(ρ) = Jn(kc*ρ)*Yn(kc*a) - Jn(kc*a)*Yn(kc*ρ)
     const Jn = besselJ(n, kcRho);
     const Yn = besselY(n, kcRho);
@@ -271,42 +356,50 @@ export class CoaxialWaveguide extends Waveguide {
     const YnA = besselY(n, kcA);
 
     const R = Jn * YnA - JnA * Yn;
-    const Ez = R * Math.cos(n * phi) * phaseFactor;
 
-    const factor = 1 / (kc * kc);
-
+    // Dérivée de R par rapport à ρ
     const JnPrime = besselJPrime(n, kcRho);
     const YnPrime = besselYPrime(n, kcRho);
-    const RPrime = JnPrime * YnA - JnA * YnPrime;
+    const RPrime = (JnPrime * YnA - JnA * YnPrime) * kc;
 
-    const Erho = -factor * beta * kc * RPrime *
-      Math.cos(n * phi) * phaseFactor;
+    // Ez = R(ρ) * cos(n*φ) * cos(ωt - βz)
+    const Ez = R * Math.cos(n * phi) * phaseFactor;
 
-    const Ephi = rho > 0 ?
+    // Impédance TM: ZTM = β/(ωε)
+    const ZTM = beta / (omega * CONSTANTS.eps0);
+    const factor = 1 / (kc * kc);
+
+    // Composantes transverses
+    const Erho = -factor * beta * RPrime *
+      Math.cos(n * phi) * phaseFactor / kc;
+
+    const Ephi = rho > 1e-10 ?
       factor * beta * (n / rho) * R *
       Math.sin(n * phi) * phaseFactor : 0;
 
-    const Hrho = rho > 0 ?
+    const Hrho = rho > 1e-10 ?
       factor * omega * CONSTANTS.eps0 * (n / rho) * R *
       Math.sin(n * phi) * phaseFactor : 0;
 
-    const Hphi = factor * omega * CONSTANTS.eps0 * kc * RPrime *
-      Math.cos(n * phi) * phaseFactor;
+    const Hphi = factor * omega * CONSTANTS.eps0 * RPrime *
+      Math.cos(n * phi) * phaseFactor / kc;
 
-    const cosPhi = rho > 0 ? x / rho : 1;
-    const sinPhi = rho > 0 ? y / rho : 0;
+    // Conversion en coordonnées cartésiennes
+    const cosPhi = rho > 1e-10 ? x / rho : 1;
+    const sinPhi = rho > 1e-10 ? y / rho : 0;
 
-    const norm = 0.1;
+    // Normalisation pour visualisation
+    const visualNorm = 1 / (ZTM * kc);
 
     return {
       E: {
-        x: (Erho * cosPhi - Ephi * sinPhi) * norm,
-        y: (Erho * sinPhi + Ephi * cosPhi) * norm,
-        z: Ez * norm,
+        x: (Erho * cosPhi - Ephi * sinPhi) * visualNorm,
+        y: (Erho * sinPhi + Ephi * cosPhi) * visualNorm,
+        z: Ez * visualNorm,
       },
       H: {
-        x: (Hrho * cosPhi - Hphi * sinPhi) * norm,
-        y: (Hrho * sinPhi + Hphi * cosPhi) * norm,
+        x: (Hrho * cosPhi - Hphi * sinPhi) * visualNorm,
+        y: (Hrho * sinPhi + Hphi * cosPhi) * visualNorm,
         z: 0,
       },
     };
