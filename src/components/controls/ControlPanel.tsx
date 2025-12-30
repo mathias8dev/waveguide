@@ -1,6 +1,6 @@
 import { useSimulationStore } from '@/stores/simulationStore';
 import { useAnimation } from '@/hooks/useAnimation';
-import { Select, Slider, Button, Toggle, Card } from '@/components/ui';
+import { Select, Slider, Button, Card } from '@/components/ui';
 import { WaveguideType, ModeType } from '@/types';
 
 export function ControlPanel() {

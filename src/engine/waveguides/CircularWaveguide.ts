@@ -257,7 +257,7 @@ export class CircularWaveguide extends Waveguide {
     p: number,
     kc: number,
     beta: number,
-    omega: number,
+    _omega: number,
     phaseFactor: number,
     type: 'HE' | 'EH'
   ): FieldVector {

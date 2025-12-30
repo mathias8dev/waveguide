@@ -7,6 +7,7 @@ import { useSimulationStore } from '@/stores/simulationStore';
 export function useAnimation() {
   const frameRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
+  const timeRef = useRef<number>(0);
 
   const isAnimating = useSimulationStore((state) => state.isAnimating);
   const setTime = useSimulationStore((state) => state.setTime);
@@ -24,7 +25,8 @@ export function useAnimation() {
       // Mettre à jour le temps de simulation
       // On utilise un facteur pour ralentir l'animation visible
       const timeScale = 1 / frequency; // Plus la fréquence est haute, plus on ralentit
-      setTime((prevTime) => prevTime + delta * timeScale * 1e10);
+      timeRef.current += delta * timeScale * 1e10;
+      setTime(timeRef.current);
 
       frameRef.current = requestAnimationFrame(animate);
     },

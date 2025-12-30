@@ -17,7 +17,7 @@ export class CoaxialWaveguide extends Waveguide {
   }
 
   getCutoffFrequency(mode: Mode): number {
-    const { type, m, n } = mode;
+    const { type } = mode;
 
     if (type === 'TEM') {
       // Le mode TEM n'a pas de fréquence de coupure
