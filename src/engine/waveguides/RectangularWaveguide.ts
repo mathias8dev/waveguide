@@ -4,21 +4,49 @@ import { Mode, FieldVector, CONSTANTS, RectangularParams } from '@/types';
 /**
  * Guide d'onde rectangulaire
  *
- * Convention: dimensions a × b où a ≥ b (a est la dimension large)
- * Le mode dominant est TE10 (le plus bas en fréquence de coupure)
+ * Structure métallique creuse de section rectangulaire a × b.
+ * Convention: a ≥ b (a est la dimension large).
  *
- * Modes TE (Transverse Électrique): Ez = 0, Hz ≠ 0
- *   - TE_mn avec m ≥ 0, n ≥ 0, mais pas m = n = 0
- *   - fc = (c/2) * √((m/a)² + (n/b)²)
+ * ## Modes supportés
  *
- * Modes TM (Transverse Magnétique): Hz = 0, Ez ≠ 0
- *   - TM_mn avec m ≥ 1, n ≥ 1
- *   - Même formule de fc que TE
+ * **Modes TE (Transverse Électrique)**: Ez = 0, Hz ≠ 0
+ * - TEₘₙ avec m ≥ 0, n ≥ 0, mais pas m = n = 0
+ * - Mode dominant: TE₁₀
+ *
+ * **Modes TM (Transverse Magnétique)**: Hz = 0, Ez ≠ 0
+ * - TMₘₙ avec m ≥ 1, n ≥ 1
+ *
+ * ## Fréquence de coupure
+ *
+ * fc = (c/2) × √((m/a)² + (n/b)²)
+ *
+ * Pour le mode dominant TE₁₀: fc = c / (2a)
+ *
+ * ## Standards
+ *
+ * | Nom   | Bande | a (mm)  | b (mm) | fc TE₁₀ (GHz) |
+ * |-------|-------|---------|--------|---------------|
+ * | WR-90 | X     | 22.86   | 10.16  | 6.56          |
+ * | WR-75 | X     | 19.05   | 9.53   | 7.87          |
+ * | WR-62 | Ku    | 15.80   | 7.90   | 9.49          |
+ *
+ * @example
+ * const guide = new RectangularWaveguide({ a: 0.02286, b: 0.01016 });
+ * guide.getCutoffFrequency({ type: 'TE', m: 1, n: 0 }) // ~6.56 GHz
  */
 export class RectangularWaveguide extends Waveguide {
-  readonly a: number; // Largeur (dimension grande)
-  readonly b: number; // Hauteur (dimension petite)
+  /** Largeur du guide (dimension grande, m) */
+  readonly a: number;
+  /** Hauteur du guide (dimension petite, m) */
+  readonly b: number;
 
+  /**
+   * Crée un guide d'onde rectangulaire
+   * @param params - Dimensions du guide
+   * @param params.a - Largeur (m)
+   * @param params.b - Hauteur (m)
+   * @throws {Error} Si les dimensions sont négatives, nulles ou non finies
+   */
   constructor(params: Omit<RectangularParams, 'type'>) {
     super();
 
@@ -35,20 +63,38 @@ export class RectangularWaveguide extends Waveguide {
     this.b = Math.min(params.a, params.b);
   }
 
+  /**
+   * Calcule la fréquence de coupure d'un mode
+   * @param mode - Mode (type, m, n)
+   * @returns Fréquence de coupure en Hz
+   */
   getCutoffFrequency(mode: Mode): number {
     const kc = this.getCutoffWavenumber(mode);
     return (CONSTANTS.c * kc) / (2 * Math.PI);
   }
 
+  /**
+   * Calcule le nombre d'onde de coupure
+   * kc = √((mπ/a)² + (nπ/b)²)
+   * @param mode - Mode (type, m, n)
+   * @returns Nombre d'onde de coupure en rad/m
+   */
   getCutoffWavenumber(mode: Mode): number {
     const { m, n } = mode;
-    // kc = √((mπ/a)² + (nπ/b)²)
     return Math.sqrt(
       Math.pow((m * Math.PI) / this.a, 2) +
       Math.pow((n * Math.PI) / this.b, 2)
     );
   }
 
+  /**
+   * Vérifie si un mode est physiquement supporté
+   * - TE: m ≥ 0, n ≥ 0, pas les deux à 0
+   * - TM: m ≥ 1, n ≥ 1
+   * - TEM: non supporté (guide creux)
+   * @param mode - Mode à vérifier
+   * @returns true si le mode est supporté
+   */
   isModeSupported(mode: Mode): boolean {
     const { type, m, n } = mode;
 
@@ -66,6 +112,10 @@ export class RectangularWaveguide extends Waveguide {
     return false;
   }
 
+  /**
+   * Retourne les modes disponibles triés par fréquence de coupure
+   * @returns Liste des modes supportés, triés par fc croissante
+   */
   getAvailableModes(): Mode[] {
     const modes: Mode[] = [];
 
@@ -90,6 +140,17 @@ export class RectangularWaveguide extends Waveguide {
     );
   }
 
+  /**
+   * Calcule la distribution des champs E et H en un point
+   *
+   * @param x - Coordonnée x relative au centre (m)
+   * @param y - Coordonnée y relative au centre (m)
+   * @param z - Coordonnée z de propagation (m)
+   * @param mode - Mode de propagation
+   * @param frequency - Fréquence d'opération (Hz)
+   * @param time - Instant temporel (s)
+   * @returns Vecteurs E et H au point donné
+   */
   getFieldDistribution(
     x: number,
     y: number,

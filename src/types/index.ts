@@ -73,9 +73,5 @@ export interface CalculatedParams {
 }
 
 // Constantes physiques
-export const CONSTANTS = {
-  c: 299792458,           // Vitesse de la lumière (m/s)
-  mu0: 4 * Math.PI * 1e-7, // Perméabilité du vide (H/m)
-  eps0: 8.854187817e-12,   // Permittivité du vide (F/m)
-  eta0: 376.730313668,     // Impédance du vide (Ω)
-} as const;
+// @deprecated Utilisez les exports individuels de '@/constants' à la place
+export { PHYSICS as CONSTANTS } from '../constants';

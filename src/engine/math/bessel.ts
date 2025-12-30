@@ -1,11 +1,33 @@
 /**
- * Fonctions de Bessel et leurs dérivées
- * Implémentation basée sur les séries et approximations polynomiales
+ * @module bessel
+ * @description Fonctions de Bessel et leurs dérivées
+ *
+ * Implémentation basée sur:
+ * - Séries de puissance pour |x| < 8
+ * - Approximations asymptotiques pour |x| >= 8
+ *
+ * Références:
+ * - Abramowitz & Stegun, Handbook of Mathematical Functions, Chapter 9
+ * - NIST Digital Library of Mathematical Functions, Chapter 10
  */
 
 /**
- * Fonction de Bessel de première espèce Jn(x)
- * Utilise la série de puissance pour les petits x et les approximations pour les grands x
+ * Fonction de Bessel de première espèce Jₙ(x)
+ *
+ * Pour |x| < 8, utilise la série de puissance:
+ * Jₙ(x) = Σₖ (-1)ᵏ (x/2)^(2k+n) / (k! (k+n)!)
+ *
+ * Pour |x| >= 8, utilise l'approximation asymptotique:
+ * Jₙ(x) ≈ √(2/πx) cos(x - nπ/2 - π/4)
+ *
+ * @param n - Ordre de la fonction (entier >= 0)
+ * @param x - Argument réel
+ * @returns Jₙ(x)
+ *
+ * @example
+ * besselJ(0, 0)  // 1
+ * besselJ(0, 2.4048)  // ~0 (premier zéro de J₀)
+ * besselJ(1, 3.8317)  // ~0 (premier zéro de J₁)
  */
 export function besselJ(n: number, x: number): number {
   if (x === 0) {
@@ -47,7 +69,18 @@ function besselJAsymptotic(n: number, x: number): number {
 }
 
 /**
- * Dérivée de la fonction de Bessel J'n(x)
+ * Dérivée de la fonction de Bessel J'ₙ(x)
+ *
+ * Utilise la relation de récurrence:
+ * - J'₀(x) = -J₁(x)
+ * - J'ₙ(x) = (Jₙ₋₁(x) - Jₙ₊₁(x)) / 2 pour n > 0
+ *
+ * @param n - Ordre de la fonction (entier >= 0)
+ * @param x - Argument réel
+ * @returns J'ₙ(x)
+ *
+ * @example
+ * besselJPrime(1, 1.8412)  // ~0 (premier zéro de J'₁)
  */
 export function besselJPrime(n: number, x: number): number {
   if (n === 0) {
@@ -58,7 +91,20 @@ export function besselJPrime(n: number, x: number): number {
 }
 
 /**
- * Fonction de Bessel de seconde espèce Yn(x) (Neumann)
+ * Fonction de Bessel de seconde espèce Yₙ(x) (fonction de Neumann)
+ *
+ * Aussi notée Nₙ(x). Singulière en x = 0 (Yₙ(0) = -∞).
+ *
+ * Pour n = 0 et n = 1, utilise des formules spécifiques.
+ * Pour n > 1, utilise la récurrence: Yₙ(x) = (2(n-1)/x)Yₙ₋₁(x) - Yₙ₋₂(x)
+ *
+ * @param n - Ordre de la fonction (entier >= 0)
+ * @param x - Argument réel (doit être > 0)
+ * @returns Yₙ(x), ou -Infinity si x <= 0
+ *
+ * @example
+ * besselY(0, 1)  // ~0.0883
+ * besselY(0, 0)  // -Infinity
  */
 export function besselY(n: number, x: number): number {
   if (x <= 0) {
@@ -143,7 +189,15 @@ function harmonicSum(n: number): number {
 }
 
 /**
- * Dérivée de Yn(x)
+ * Dérivée de la fonction de Bessel de seconde espèce Y'ₙ(x)
+ *
+ * Utilise la relation de récurrence:
+ * - Y'₀(x) = -Y₁(x)
+ * - Y'ₙ(x) = (Yₙ₋₁(x) - Yₙ₊₁(x)) / 2 pour n > 0
+ *
+ * @param n - Ordre de la fonction (entier >= 0)
+ * @param x - Argument réel (doit être > 0)
+ * @returns Y'ₙ(x)
  */
 export function besselYPrime(n: number, x: number): number {
   if (n === 0) {
@@ -154,7 +208,10 @@ export function besselYPrime(n: number, x: number): number {
 }
 
 /**
- * Factorielle
+ * Calcule la factorielle n!
+ * @param n - Entier non négatif
+ * @returns n! ou Infinity si n < 0
+ * @internal
  */
 function factorial(n: number): number {
   if (n < 0) return Infinity;
@@ -168,8 +225,17 @@ function factorial(n: number): number {
 }
 
 /**
- * Racines de Jn(x) = 0 (pour modes TM dans guide circulaire)
- * Retourne les premières racines de la fonction de Bessel Jn
+ * Table des zéros de Jₙ(x) = 0
+ *
+ * Utilisés pour les modes TM dans les guides d'ondes circulaires.
+ * La valeur χₙₚ (p-ème zéro de Jₙ) détermine la fréquence de coupure:
+ * fc = χₙₚ × c / (2πa) où a est le rayon du guide.
+ *
+ * Source: Abramowitz & Stegun, Table 9.5
+ *
+ * @example
+ * BESSEL_J_ZEROS[0][0]  // 2.4048 - premier zéro de J₀
+ * BESSEL_J_ZEROS[1][0]  // 3.8317 - premier zéro de J₁
  */
 export const BESSEL_J_ZEROS: Record<number, number[]> = {
   0: [2.4048, 5.5201, 8.6537, 11.7915, 14.9309],
@@ -180,7 +246,19 @@ export const BESSEL_J_ZEROS: Record<number, number[]> = {
 };
 
 /**
- * Racines de J'n(x) = 0 (pour modes TE dans guide circulaire)
+ * Table des zéros de J'ₙ(x) = 0
+ *
+ * Utilisés pour les modes TE dans les guides d'ondes circulaires.
+ * La valeur χ'ₙₚ (p-ème zéro de J'ₙ) détermine la fréquence de coupure:
+ * fc = χ'ₙₚ × c / (2πa) où a est le rayon du guide.
+ *
+ * Note: χ'₁₁ = 1.8412 correspond au mode dominant TE₁₁.
+ *
+ * Source: Abramowitz & Stegun, Table 9.5
+ *
+ * @example
+ * BESSEL_J_PRIME_ZEROS[1][0]  // 1.8412 - premier zéro de J'₁ (mode TE₁₁)
+ * BESSEL_J_PRIME_ZEROS[0][0]  // 3.8317 - premier zéro de J'₀
  */
 export const BESSEL_J_PRIME_ZEROS: Record<number, number[]> = {
   0: [3.8317, 7.0156, 10.1735, 13.3237, 16.4706],

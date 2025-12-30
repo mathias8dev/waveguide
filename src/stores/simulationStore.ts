@@ -7,6 +7,8 @@ import {
   CalculatedParams,
 } from '@/types';
 import { RectangularWaveguide, CircularWaveguide, CoaxialWaveguide, Waveguide } from '@/engine';
+import { LIMITS, STANDARD_WAVEGUIDES } from '@/constants';
+import { isValidPositiveNumber, clamp } from '@/utils/math';
 
 interface SimulationStore extends SimulationState {
   // Paramètres calculés
@@ -26,8 +28,8 @@ interface SimulationStore extends SimulationState {
 
 const DEFAULT_RECTANGULAR: RectangularParams = {
   type: 'rectangular',
-  a: 0.02286, // 22.86mm (standard WR-90)
-  b: 0.01016, // 10.16mm
+  a: STANDARD_WAVEGUIDES.WR90.a,
+  b: STANDARD_WAVEGUIDES.WR90.b,
 };
 
 const DEFAULT_MODE: Mode = {
@@ -37,20 +39,6 @@ const DEFAULT_MODE: Mode = {
 };
 
 const DEFAULT_FREQUENCY = 10e9; // 10 GHz
-
-// Limites de validation
-const MIN_FREQUENCY = 1e6;   // 1 MHz
-const MAX_FREQUENCY = 1e12;  // 1 THz
-// Dimensions réservées pour validation future
-// const MIN_DIMENSION = 1e-6;  // 1 µm
-// const MAX_DIMENSION = 1;     // 1 m
-
-/**
- * Valide qu'un nombre est fini et positif
- */
-function isValidPositiveNumber(value: number): boolean {
-  return typeof value === 'number' && isFinite(value) && value > 0;
-}
 
 function createWaveguideInstance(params: AnyWaveguideParams): Waveguide {
   switch (params.type) {
@@ -85,21 +73,21 @@ export const useSimulationStore = create<SimulationStore>((set, get) => ({
       case 'rectangular':
         newParams = {
           type: 'rectangular',
-          a: 0.02286,
-          b: 0.01016,
+          a: STANDARD_WAVEGUIDES.WR90.a,
+          b: STANDARD_WAVEGUIDES.WR90.b,
         };
         break;
       case 'circular':
         newParams = {
           type: 'circular',
-          radius: 0.01,
+          radius: 0.01, // 1 cm
         };
         break;
       case 'coaxial':
         newParams = {
           type: 'coaxial',
-          innerRadius: 0.001,
-          outerRadius: 0.003,
+          innerRadius: STANDARD_WAVEGUIDES.COAX_50OHM.innerRadius,
+          outerRadius: STANDARD_WAVEGUIDES.COAX_50OHM.outerRadius,
         };
         break;
       default:
@@ -151,7 +139,7 @@ export const useSimulationStore = create<SimulationStore>((set, get) => ({
     }
 
     // Clamper dans les limites raisonnables
-    const clampedFrequency = Math.max(MIN_FREQUENCY, Math.min(MAX_FREQUENCY, frequency));
+    const clampedFrequency = clamp(frequency, LIMITS.MIN_FREQUENCY, LIMITS.MAX_FREQUENCY);
 
     set({ frequency: clampedFrequency });
     get().updateCalculatedParams();
