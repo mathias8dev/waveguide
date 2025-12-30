@@ -65,12 +65,13 @@ function drawGuideStructure(dc: DrawContext): void {
 
 /**
  * Dessine le mode évanescent (décroissance exponentielle)
+ * @param phase - Phase d'animation en radians (depuis le store)
  */
 function drawEvanescentMode(
   dc: DrawContext,
   fc: number,
   frequency: number,
-  time: number,
+  phase: number,
   showElectric: boolean
 ): void {
   const { ctx, width, height, padding, drawWidth, guideHeight } = dc;
@@ -96,7 +97,8 @@ function drawEvanescentMode(
     for (let x = 0; x <= drawWidth; x++) {
       const z = (x / drawWidth) * 0.1; // 10 cm de longueur
       const amplitude = Math.exp(-alpha * z) * (guideHeight / 3);
-      const y = height / 2 - amplitude * Math.cos(2 * Math.PI * frequency * time);
+      // Utiliser phase directement (pas omega * time)
+      const y = height / 2 - amplitude * Math.cos(phase);
 
       if (x === 0) {
         ctx.moveTo(padding + x, y);
@@ -110,12 +112,12 @@ function drawEvanescentMode(
 
 /**
  * Dessine les sinusoïdes de propagation E et H
+ * @param animationPhase - Phase d'animation en radians (depuis le store)
  */
 function drawPropagatingWaves(
   dc: DrawContext,
   beta: number,
-  omega: number,
-  time: number,
+  animationPhase: number,
   showElectric: boolean,
   showMagnetic: boolean
 ): { zLength: number; numWavelengths: number } {
@@ -134,7 +136,8 @@ function drawPropagatingWaves(
 
     for (let x = 0; x <= drawWidth; x++) {
       const z = (x / drawWidth) * zLength;
-      const phase = omega * time - beta * z;
+      // Phase = animationPhase - beta * z (onde progressive vers +z)
+      const phase = animationPhase - beta * z;
       const E = amplitude * Math.sin(phase);
       const y = height / 2 - E;
 
@@ -146,13 +149,13 @@ function drawPropagatingWaves(
     }
     ctx.stroke();
 
-    // Points de crête
+    // Points de crête (là où sin(phase) = ±1)
     ctx.fillStyle = COLORS.ELECTRIC_FIELD;
     for (let i = 0; i < numWavelengths * 2; i++) {
-      const peakZ = (omega * time - i * Math.PI) / beta;
+      const peakZ = (animationPhase - i * Math.PI) / beta;
       if (peakZ >= 0 && peakZ <= zLength) {
         const x = padding + (peakZ / zLength) * drawWidth;
-        const E = amplitude * Math.sin(omega * time - beta * peakZ);
+        const E = amplitude * Math.sin(animationPhase - beta * peakZ);
         const y = height / 2 - E;
         ctx.beginPath();
         ctx.arc(x, y, 4, 0, 2 * Math.PI);
@@ -169,7 +172,7 @@ function drawPropagatingWaves(
 
     for (let x = 0; x <= drawWidth; x++) {
       const z = (x / drawWidth) * zLength;
-      const phase = omega * time - beta * z;
+      const phase = animationPhase - beta * z;
       const H = amplitude * 0.7 * Math.sin(phase);
       const y = height / 2 - H;
 
@@ -187,13 +190,13 @@ function drawPropagatingWaves(
 
 /**
  * Dessine les vecteurs de champ à intervalles réguliers
+ * @param animationPhase - Phase d'animation en radians
  */
 function drawFieldVectors(
   dc: DrawContext,
   zLength: number,
-  omega: number,
   beta: number,
-  time: number,
+  animationPhase: number,
   showElectric: boolean
 ): void {
   const { ctx, height, padding, drawWidth } = dc;
@@ -202,7 +205,7 @@ function drawFieldVectors(
   for (let i = 0; i <= numVectors; i++) {
     const x = padding + (i / numVectors) * drawWidth;
     const z = (i / numVectors) * zLength;
-    const phase = omega * time - beta * z;
+    const phase = animationPhase - beta * z;
 
     if (showElectric) {
       const E = Math.sin(phase);
@@ -291,11 +294,15 @@ function drawInfoAndLegend(
 
 /**
  * Hook pour le dessin de la visualisation de propagation
+ *
+ * Note: Le `time` du store est maintenant une phase d'animation en radians,
+ * pas le temps physique. Cela permet une animation visible.
  */
 export function usePropagationDraw(options: DrawOptions) {
   const mode = useSimulationStore((state) => state.mode);
   const frequency = useSimulationStore((state) => state.frequency);
-  const time = useSimulationStore((state) => state.time);
+  // `animationPhase` est en radians, évolue lentement pour être visible
+  const animationPhase = useSimulationStore((state) => state.time);
   const calculatedParams = useSimulationStore((state) => state.calculatedParams);
 
   const draw = useCallback(
@@ -326,30 +333,28 @@ export function usePropagationDraw(options: DrawOptions) {
       drawGuideStructure(dc);
 
       if (!isPropagatif) {
-        drawEvanescentMode(dc, fc, frequency, time, showElectric);
+        drawEvanescentMode(dc, fc, frequency, animationPhase, showElectric);
         return;
       }
 
-      const omega = 2 * Math.PI * frequency;
       const lambdaG = (2 * Math.PI) / beta;
 
       // Dessiner les ondes propagatives
       const { zLength, numWavelengths } = drawPropagatingWaves(
         dc,
         beta,
-        omega,
-        time,
+        animationPhase,
         showElectric,
         showMagnetic
       );
 
       // Dessiner les vecteurs de champ
-      drawFieldVectors(dc, zLength, omega, beta, time, showElectric);
+      drawFieldVectors(dc, zLength, beta, animationPhase, showElectric);
 
       // Dessiner les informations
       drawInfoAndLegend(dc, lambdaG, beta, mode, numWavelengths, showElectric, showMagnetic);
     },
-    [options, mode, frequency, time, calculatedParams]
+    [options, mode, frequency, animationPhase, calculatedParams]
   );
 
   return { draw, calculatedParams };

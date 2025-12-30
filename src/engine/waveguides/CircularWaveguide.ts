@@ -111,8 +111,9 @@ export class CircularWaveguide extends Waveguide {
     const beta = params.propagationConstant;
     const omega = 2 * Math.PI * frequency;
 
-    // Phase de propagation: cos(ωt - βz) pour onde progressive vers +z
-    const phaseFactor = Math.cos(omega * time - beta * z);
+    // Phase de propagation: cos(φ - βz) pour onde progressive vers +z
+    // Note: `time` est interprété comme phase d'animation (en radians)
+    const phaseFactor = Math.cos(time - beta * z);
 
     if (type === 'TE') {
       return this.getTEFieldDistribution(

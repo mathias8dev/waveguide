@@ -186,7 +186,9 @@ export class CoaxialWaveguide extends Waveguide {
     }
 
     const omega = 2 * Math.PI * frequency;
-    const phaseFactor = Math.cos(omega * time - beta * z);
+    // Phase de propagation: cos(φ - βz) pour onde progressive vers +z
+    // Note: `time` est interprété comme phase d'animation (en radians)
+    const phaseFactor = Math.cos(time - beta * z);
 
     if (type === 'TEM') {
       return this.getTEMFieldDistribution(rho, x, y, phaseFactor);
