@@ -21,6 +21,18 @@ export class CoaxialWaveguide extends Waveguide {
 
   constructor(params: Omit<CoaxialParams, 'type'>) {
     super();
+
+    // Validation des rayons
+    if (params.innerRadius <= 0 || !isFinite(params.innerRadius)) {
+      throw new Error(`CoaxialWaveguide: rayon interne doit être positif, reçu: ${params.innerRadius}`);
+    }
+    if (params.outerRadius <= 0 || !isFinite(params.outerRadius)) {
+      throw new Error(`CoaxialWaveguide: rayon externe doit être positif, reçu: ${params.outerRadius}`);
+    }
+    if (params.innerRadius >= params.outerRadius) {
+      throw new Error(`CoaxialWaveguide: rayon interne (${params.innerRadius}) doit être inférieur au rayon externe (${params.outerRadius})`);
+    }
+
     this.innerRadius = params.innerRadius;
     this.outerRadius = params.outerRadius;
   }

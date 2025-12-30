@@ -21,6 +21,15 @@ export class RectangularWaveguide extends Waveguide {
 
   constructor(params: Omit<RectangularParams, 'type'>) {
     super();
+
+    // Validation des dimensions
+    if (params.a <= 0 || !isFinite(params.a)) {
+      throw new Error(`RectangularWaveguide: dimension 'a' doit être positive, reçu: ${params.a}`);
+    }
+    if (params.b <= 0 || !isFinite(params.b)) {
+      throw new Error(`RectangularWaveguide: dimension 'b' doit être positive, reçu: ${params.b}`);
+    }
+
     // Par convention, a >= b
     this.a = Math.max(params.a, params.b);
     this.b = Math.min(params.a, params.b);

@@ -15,6 +15,12 @@ export class CircularWaveguide extends Waveguide {
 
   constructor(params: Omit<CircularParams, 'type'>) {
     super();
+
+    // Validation du rayon
+    if (params.radius <= 0 || !isFinite(params.radius)) {
+      throw new Error(`CircularWaveguide: rayon doit être positif, reçu: ${params.radius}`);
+    }
+
     this.radius = params.radius;
   }
 
@@ -199,6 +205,33 @@ export class CircularWaveguide extends Waveguide {
   }
 
   /**
+   * Calcule le maximum de |Jn(x)| dans l'intervalle [0, chi]
+   * Utilisé pour la normalisation des champs TM
+   */
+  private computeJnMaximum(n: number, chi: number): number {
+    if (n === 0) {
+      // J_0(0) = 1 est le maximum
+      return 1;
+    }
+
+    // Pour n > 0, le maximum est atteint au premier pic
+    // On échantillonne pour trouver le maximum
+    const steps = 50;
+    let maxVal = 0;
+
+    for (let i = 0; i <= steps; i++) {
+      const x = (i / steps) * chi;
+      const val = Math.abs(besselJ(n, x));
+      if (val > maxVal) {
+        maxVal = val;
+      }
+    }
+
+    // Assurer une valeur minimale pour éviter division par zéro
+    return Math.max(maxVal, 0.1);
+  }
+
+  /**
    * Distribution des champs pour les modes TM (Hz = 0)
    *
    * Ez = E0 * Jn(kc*ρ) * cos(n*φ) * cos(ωt - βz)
@@ -224,8 +257,8 @@ export class CircularWaveguide extends Waveguide {
     const kcRho = kc * rho;
 
     // Pour TM, Jn(χ) = 0 à la frontière, donc on normalise par la valeur max
-    // La valeur max de Jn est environ 1 pour n=0, moins pour n>0
-    const JnMax = n === 0 ? 1 : 0.5;
+    // Calcul du maximum de Jn dans l'intervalle [0, χ] par échantillonnage
+    const JnMax = this.computeJnMaximum(n, kc * this.radius);
     const normFactor = 1 / JnMax;
 
     // Ez normalisé

@@ -11,6 +11,13 @@ interface SliderProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'type'
   formatValue?: (value: number) => string;
 }
 
+/**
+ * Valide qu'un nombre est fini et non-NaN
+ */
+function isValidNumber(value: number): boolean {
+  return typeof value === 'number' && isFinite(value) && !isNaN(value);
+}
+
 export function Slider({
   label,
   value,
@@ -23,6 +30,19 @@ export function Slider({
   ...props
 }: SliderProps) {
   const displayValue = formatValue ? formatValue(value) : value.toFixed(4);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const parsed = parseFloat(e.target.value);
+
+    // Validation: ignorer les valeurs invalides
+    if (!isValidNumber(parsed)) {
+      return;
+    }
+
+    // Clamper la valeur entre min et max
+    const clamped = Math.max(min, Math.min(max, parsed));
+    onChange(clamped);
+  };
 
   return (
     <div className="space-y-1">
@@ -38,7 +58,7 @@ export function Slider({
         max={max}
         step={step}
         value={value}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
+        onChange={handleChange}
         className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
         {...props}
       />

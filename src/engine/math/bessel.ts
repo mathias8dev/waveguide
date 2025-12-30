@@ -192,24 +192,51 @@ export const BESSEL_J_PRIME_ZEROS: Record<number, number[]> = {
 
 /**
  * Obtient la p-ième racine de Jn(x) = 0
+ * @param n - Ordre de la fonction de Bessel (n >= 0)
+ * @param p - Numéro de la racine (p >= 1)
+ * @throws {Error} Si n < 0 ou p < 1
  */
 export function getBesselJZero(n: number, p: number): number {
-  if (BESSEL_J_ZEROS[n] && BESSEL_J_ZEROS[n][p - 1]) {
+  // Validation des paramètres
+  if (n < 0 || !Number.isInteger(n)) {
+    throw new Error(`getBesselJZero: n doit être un entier >= 0, reçu: ${n}`);
+  }
+  if (p < 1 || !Number.isInteger(p)) {
+    throw new Error(`getBesselJZero: p doit être un entier >= 1, reçu: ${p}`);
+  }
+
+  // Vérifier si la valeur est tabulée
+  if (n in BESSEL_J_ZEROS && p <= BESSEL_J_ZEROS[n].length) {
     return BESSEL_J_ZEROS[n][p - 1];
   }
 
-  // Approximation pour n ou p non tabulés
+  // Calcul numérique pour valeurs non tabulées
+  console.warn(`getBesselJZero: calcul numérique pour n=${n}, p=${p}`);
   return findBesselJZero(n, p);
 }
 
 /**
  * Obtient la p-ième racine de J'n(x) = 0
+ * @param n - Ordre de la fonction de Bessel (n >= 0)
+ * @param p - Numéro de la racine (p >= 1)
+ * @throws {Error} Si n < 0 ou p < 1
  */
 export function getBesselJPrimeZero(n: number, p: number): number {
-  if (BESSEL_J_PRIME_ZEROS[n] && BESSEL_J_PRIME_ZEROS[n][p - 1]) {
+  // Validation des paramètres
+  if (n < 0 || !Number.isInteger(n)) {
+    throw new Error(`getBesselJPrimeZero: n doit être un entier >= 0, reçu: ${n}`);
+  }
+  if (p < 1 || !Number.isInteger(p)) {
+    throw new Error(`getBesselJPrimeZero: p doit être un entier >= 1, reçu: ${p}`);
+  }
+
+  // Vérifier si la valeur est tabulée
+  if (n in BESSEL_J_PRIME_ZEROS && p <= BESSEL_J_PRIME_ZEROS[n].length) {
     return BESSEL_J_PRIME_ZEROS[n][p - 1];
   }
 
+  // Calcul numérique pour valeurs non tabulées
+  console.warn(`getBesselJPrimeZero: calcul numérique pour n=${n}, p=${p}`);
   return findBesselJPrimeZero(n, p);
 }
 

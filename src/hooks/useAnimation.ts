@@ -24,8 +24,17 @@ export function useAnimation() {
 
       // Mettre à jour le temps de simulation
       // On utilise un facteur pour ralentir l'animation visible
-      const timeScale = 1 / frequency; // Plus la fréquence est haute, plus on ralentit
-      timeRef.current += delta * timeScale * 1e10;
+      // Protection contre division par zéro
+      const timeScale = frequency > 0 ? 1 / frequency : 0;
+      if (timeScale > 0) {
+        // Utiliser temps cyclique pour éviter accumulation d'erreurs de précision
+        const period = 1 / frequency;
+        timeRef.current += delta * timeScale * 1e10;
+        // Limiter pour éviter les très grandes valeurs
+        if (timeRef.current > period * 1e12) {
+          timeRef.current = timeRef.current % (period * 1e12);
+        }
+      }
       setTime(timeRef.current);
 
       frameRef.current = requestAnimationFrame(animate);
