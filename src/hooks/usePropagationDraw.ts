@@ -113,6 +113,11 @@ function drawEvanescentMode(
 /**
  * Dessine les sinusoïdes de propagation E et H
  * @param animationPhase - Phase d'animation en radians (depuis le store)
+ *
+ * Physique: Dans une onde plane EM se propageant en +z:
+ * - E = E₀ sin(ωt - βz) (oscillation verticale, plan xz)
+ * - H = H₀ sin(ωt - βz) (oscillation horizontale, plan yz, en phase avec E)
+ * Pour un mode TE dans un guide, E et H sont en phase.
  */
 function drawPropagatingWaves(
   dc: DrawContext,
@@ -126,9 +131,10 @@ function drawPropagatingWaves(
   const lambdaG = (2 * Math.PI) / beta;
   const numWavelengths = 3;
   const zLength = numWavelengths * lambdaG;
-  const amplitude = guideHeight / 3;
+  const amplitudeE = guideHeight / 3;
+  const amplitudeH = guideHeight / 4; // Légèrement plus petit pour différencier visuellement
 
-  // Champ E
+  // Champ E (oscillation verticale - rouge)
   if (showElectric) {
     ctx.strokeStyle = COLORS.ELECTRIC_FIELD;
     ctx.lineWidth = 2.5;
@@ -136,9 +142,8 @@ function drawPropagatingWaves(
 
     for (let x = 0; x <= drawWidth; x++) {
       const z = (x / drawWidth) * zLength;
-      // Phase = animationPhase - beta * z (onde progressive vers +z)
       const phase = animationPhase - beta * z;
-      const E = amplitude * Math.sin(phase);
+      const E = amplitudeE * Math.sin(phase);
       const y = height / 2 - E;
 
       if (x === 0) {
@@ -149,13 +154,14 @@ function drawPropagatingWaves(
     }
     ctx.stroke();
 
-    // Points de crête (là où sin(phase) = ±1)
+    // Points de crête E
     ctx.fillStyle = COLORS.ELECTRIC_FIELD;
-    for (let i = 0; i < numWavelengths * 2; i++) {
-      const peakZ = (animationPhase - i * Math.PI) / beta;
+    for (let i = 0; i < numWavelengths * 2 + 1; i++) {
+      const peakPhase = Math.PI / 2 + i * Math.PI; // sin = ±1
+      const peakZ = (animationPhase - peakPhase) / beta;
       if (peakZ >= 0 && peakZ <= zLength) {
         const x = padding + (peakZ / zLength) * drawWidth;
-        const E = amplitude * Math.sin(animationPhase - beta * peakZ);
+        const E = amplitudeE * Math.sin(animationPhase - beta * peakZ);
         const y = height / 2 - E;
         ctx.beginPath();
         ctx.arc(x, y, 4, 0, 2 * Math.PI);
@@ -164,16 +170,18 @@ function drawPropagatingWaves(
     }
   }
 
-  // Champ H (en phase avec E, amplitude réduite pour différencier)
+  // Champ H (en phase avec E pour mode TE guidé - bleu)
+  // Représenté avec un style différent (trait pointillé) pour le distinguer
   if (showMagnetic) {
     ctx.strokeStyle = COLORS.MAGNETIC_FIELD;
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 4]);
     ctx.beginPath();
 
     for (let x = 0; x <= drawWidth; x++) {
       const z = (x / drawWidth) * zLength;
       const phase = animationPhase - beta * z;
-      const H = amplitude * 0.7 * Math.sin(phase);
+      const H = amplitudeH * Math.sin(phase);
       const y = height / 2 - H;
 
       if (x === 0) {
@@ -183,6 +191,22 @@ function drawPropagatingWaves(
       }
     }
     ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Points de crête H
+    ctx.fillStyle = COLORS.MAGNETIC_FIELD;
+    for (let i = 0; i < numWavelengths * 2 + 1; i++) {
+      const peakPhase = Math.PI / 2 + i * Math.PI;
+      const peakZ = (animationPhase - peakPhase) / beta;
+      if (peakZ >= 0 && peakZ <= zLength) {
+        const x = padding + (peakZ / zLength) * drawWidth;
+        const H = amplitudeH * Math.sin(animationPhase - beta * peakZ);
+        const y = height / 2 - H;
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, 2 * Math.PI);
+        ctx.fill();
+      }
+    }
   }
 
   return { zLength, numWavelengths };
@@ -191,29 +215,36 @@ function drawPropagatingWaves(
 /**
  * Dessine les vecteurs de champ à intervalles réguliers
  * @param animationPhase - Phase d'animation en radians
+ *
+ * Les vecteurs E sont verticaux (perpendiculaires à z)
+ * Les vecteurs H seraient perpendiculaires à E et z (hors du plan)
+ * On les représente par des cercles avec un point/croix pour indiquer la direction
  */
 function drawFieldVectors(
   dc: DrawContext,
   zLength: number,
   beta: number,
   animationPhase: number,
-  showElectric: boolean
+  showElectric: boolean,
+  showMagnetic: boolean
 ): void {
   const { ctx, height, padding, drawWidth } = dc;
-  const numVectors = 15;
+  const numVectors = 12;
+  const maxArrowLength = 28;
 
   for (let i = 0; i <= numVectors; i++) {
     const x = padding + (i / numVectors) * drawWidth;
     const z = (i / numVectors) * zLength;
     const phase = animationPhase - beta * z;
+    const fieldValue = Math.sin(phase);
 
+    // Vecteur E (vertical - dans le plan)
     if (showElectric) {
-      const E = Math.sin(phase);
-      const arrowLength = Math.abs(E) * 25;
-      const arrowDir = E > 0 ? -1 : 1;
+      const arrowLength = Math.abs(fieldValue) * maxArrowLength;
+      const arrowDir = fieldValue > 0 ? -1 : 1; // -1 = vers le haut
 
-      if (Math.abs(E) > 0.1) {
-        const alpha = Math.abs(E);
+      if (Math.abs(fieldValue) > 0.08) {
+        const alpha = 0.3 + Math.abs(fieldValue) * 0.7;
         ctx.strokeStyle = `rgba(239, 68, 68, ${alpha})`;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
@@ -222,7 +253,7 @@ function drawFieldVectors(
         ctx.stroke();
 
         // Pointe de flèche
-        if (arrowLength > 5) {
+        if (arrowLength > 6) {
           ctx.beginPath();
           ctx.moveTo(x, height / 2 + arrowDir * arrowLength);
           ctx.lineTo(x - 3, height / 2 + arrowDir * (arrowLength - 5));
@@ -231,6 +262,40 @@ function drawFieldVectors(
           ctx.fillStyle = `rgba(239, 68, 68, ${alpha})`;
           ctx.fill();
         }
+      }
+    }
+
+    // Vecteur H (perpendiculaire au plan - représenté par cercle avec point/croix)
+    // Point (●) = sortant du plan, Croix (×) = entrant dans le plan
+    if (showMagnetic && Math.abs(fieldValue) > 0.15) {
+      const alpha = 0.3 + Math.abs(fieldValue) * 0.7;
+      const radius = 4 + Math.abs(fieldValue) * 4;
+      const yOffset = showElectric ? 35 : 0; // Décaler si E est affiché
+
+      ctx.strokeStyle = `rgba(59, 130, 246, ${alpha})`;
+      ctx.fillStyle = `rgba(59, 130, 246, ${alpha})`;
+      ctx.lineWidth = 1.5;
+
+      // Cercle
+      ctx.beginPath();
+      ctx.arc(x, height / 2 + yOffset, radius, 0, 2 * Math.PI);
+      ctx.stroke();
+
+      // Point (sortant) ou croix (entrant)
+      if (fieldValue > 0) {
+        // Point central (H sortant)
+        ctx.beginPath();
+        ctx.arc(x, height / 2 + yOffset, 2, 0, 2 * Math.PI);
+        ctx.fill();
+      } else {
+        // Croix (H entrant)
+        const crossSize = radius * 0.6;
+        ctx.beginPath();
+        ctx.moveTo(x - crossSize, height / 2 + yOffset - crossSize);
+        ctx.lineTo(x + crossSize, height / 2 + yOffset + crossSize);
+        ctx.moveTo(x + crossSize, height / 2 + yOffset - crossSize);
+        ctx.lineTo(x - crossSize, height / 2 + yOffset + crossSize);
+        ctx.stroke();
       }
     }
   }
@@ -259,18 +324,33 @@ function drawInfoAndLegend(
 
   // Légende
   const legendY = height - UI.PROPAGATION_PADDING + 25;
+  let legendX = padding;
+
   if (showElectric) {
-    ctx.fillStyle = COLORS.ELECTRIC_FIELD;
-    ctx.fillRect(padding, legendY, 20, 3);
+    // Ligne E
+    ctx.strokeStyle = COLORS.ELECTRIC_FIELD;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(legendX, legendY);
+    ctx.lineTo(legendX + 20, legendY);
+    ctx.stroke();
     ctx.fillStyle = '#94a3b8';
-    ctx.fillText('E (champ électrique)', padding + 25, legendY + 4);
+    ctx.fillText('E (vertical)', legendX + 25, legendY + 4);
+    legendX += 110;
   }
+
   if (showMagnetic) {
-    const legendX = showElectric ? padding + 160 : padding;
-    ctx.fillStyle = COLORS.MAGNETIC_FIELD;
-    ctx.fillRect(legendX, legendY, 20, 3);
+    // Ligne H pointillée
+    ctx.strokeStyle = COLORS.MAGNETIC_FIELD;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 3]);
+    ctx.beginPath();
+    ctx.moveTo(legendX, legendY);
+    ctx.lineTo(legendX + 20, legendY);
+    ctx.stroke();
+    ctx.setLineDash([]);
     ctx.fillStyle = '#94a3b8';
-    ctx.fillText('H (champ magnétique)', legendX + 25, legendY + 4);
+    ctx.fillText('H (⊙ sortant, ⊗ entrant)', legendX + 25, legendY + 4);
   }
 
   // Échelle de longueur d'onde
@@ -349,7 +429,7 @@ export function usePropagationDraw(options: DrawOptions) {
       );
 
       // Dessiner les vecteurs de champ
-      drawFieldVectors(dc, zLength, beta, animationPhase, showElectric);
+      drawFieldVectors(dc, zLength, beta, animationPhase, showElectric, showMagnetic);
 
       // Dessiner les informations
       drawInfoAndLegend(dc, lambdaG, beta, mode, numWavelengths, showElectric, showMagnetic);

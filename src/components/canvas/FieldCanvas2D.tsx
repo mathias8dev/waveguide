@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 import { useSimulationStore } from '@/stores/simulationStore';
 import { useFieldData } from '@/hooks/useFieldData';
 
@@ -18,9 +18,56 @@ export function FieldCanvas2D({
   showVectors = true,
 }: FieldCanvas2DProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // État du zoom et du pan
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
   const waveguide = useSimulationStore((state) => state.waveguide);
   const { fieldData, maxValues } = useFieldData({ resolution: 25 });
+
+  // Gestion du zoom avec la molette
+  const handleWheel = useCallback((e: WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    setZoom((prev) => Math.min(Math.max(prev * delta, 0.5), 5));
+  }, []);
+
+  // Gestion du pan avec le drag
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+  }, [pan]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isDragging) return;
+    setPan({
+      x: e.clientX - dragStart.x,
+      y: e.clientY - dragStart.y,
+    });
+  }, [isDragging, dragStart]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  // Reset zoom et pan
+  const resetView = useCallback(() => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  }, []);
+
+  // Attacher l'événement wheel au canvas
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', handleWheel);
+  }, [handleWheel]);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -32,6 +79,12 @@ export function FieldCanvas2D({
     // Clear canvas
     ctx.fillStyle = '#1e293b';
     ctx.fillRect(0, 0, width, height);
+
+    // Appliquer la transformation (zoom et pan)
+    ctx.save();
+    ctx.translate(width / 2 + pan.x, height / 2 + pan.y);
+    ctx.scale(zoom, zoom);
+    ctx.translate(-width / 2, -height / 2);
 
     // Calculer les dimensions du guide pour le mapping
     let guideWidth: number, guideHeight: number;
@@ -214,7 +267,10 @@ export function FieldCanvas2D({
       }
     }
 
-    // Légende
+    // Restaurer le contexte (fin du zoom/pan)
+    ctx.restore();
+
+    // Légende (dessinée sans transformation)
     ctx.font = '12px sans-serif';
     ctx.fillStyle = '#94a3b8';
 
@@ -231,18 +287,61 @@ export function FieldCanvas2D({
       ctx.fillStyle = '#94a3b8';
       ctx.fillText('H (champ magnétique)', showElectric ? 200 : 30, height - 20);
     }
-  }, [fieldData, maxValues, waveguide, width, height, showElectric, showMagnetic, showVectors]);
+
+    // Indicateur de zoom (sans transformation)
+    if (zoom !== 1) {
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillText(`${Math.round(zoom * 100)}%`, width - 45, 20);
+    }
+  }, [fieldData, maxValues, waveguide, width, height, showElectric, showMagnetic, showVectors, zoom, pan]);
 
   useEffect(() => {
     draw();
   }, [draw]);
 
   return (
-    <canvas
-      ref={canvasRef}
-      width={width}
-      height={height}
-      className="rounded-lg"
-    />
+    <div ref={containerRef} className="relative inline-block">
+      <canvas
+        ref={canvasRef}
+        width={width}
+        height={height}
+        className="rounded-lg cursor-grab active:cursor-grabbing"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+      />
+      {/* Contrôles de zoom */}
+      <div className="absolute top-2 right-2 flex gap-1">
+        <button
+          onClick={() => setZoom((z) => Math.min(z * 1.2, 5))}
+          className="w-7 h-7 bg-slate-700/80 hover:bg-slate-600 text-white rounded text-sm font-bold"
+          title="Zoom avant"
+        >
+          +
+        </button>
+        <button
+          onClick={() => setZoom((z) => Math.max(z / 1.2, 0.5))}
+          className="w-7 h-7 bg-slate-700/80 hover:bg-slate-600 text-white rounded text-sm font-bold"
+          title="Zoom arrière"
+        >
+          −
+        </button>
+        {(zoom !== 1 || pan.x !== 0 || pan.y !== 0) && (
+          <button
+            onClick={resetView}
+            className="px-2 h-7 bg-slate-700/80 hover:bg-slate-600 text-white rounded text-xs"
+            title="Réinitialiser la vue"
+          >
+            Reset
+          </button>
+        )}
+      </div>
+      {/* Instructions */}
+      <div className="absolute bottom-8 left-2 text-xs text-slate-400/70">
+        Molette: zoom | Glisser: déplacer
+      </div>
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { FieldCanvas2D, PropagationCanvas, ColorMapCanvas } from '@/components/canvas';
-import { WaveguideScene } from '@/components/three';
+import { WaveguideScene, EMWave3D } from '@/components/three';
 import { ControlPanel, VisualizationControls } from '@/components/controls';
 
 type ViewMode = 'cross-section' | 'propagation' | 'colormap' | '3d';
@@ -10,6 +10,16 @@ function App() {
   const [showMagnetic, setShowMagnetic] = useState(true);
   const [showVectors, setShowVectors] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>('propagation');
+
+  // Options spécifiques à la vue 3D
+  const [showWaveSurface, setShowWaveSurface] = useState(false);
+  const [showFieldLines, setShowFieldLines] = useState(true);
+  const [autoRotate, setAutoRotate] = useState(false);
+  const [animateVectors, setAnimateVectors] = useState(true);
+  const [animateWaves, setAnimateWaves] = useState(true);
+
+  // Option pour la vue propagation: 2D canvas ou 3D classique
+  const [propagationView3D, setPropagationView3D] = useState(false);
 
   const viewModes: { value: ViewMode; label: string; description: string }[] = [
     { value: 'propagation', label: 'Propagation', description: 'Vue de la sinusoïde se propageant' },
@@ -56,12 +66,44 @@ function App() {
               </h2>
               <div className="flex-1 flex items-center justify-center min-h-0 overflow-hidden">
                 {viewMode === 'propagation' && (
-                  <PropagationCanvas
-                    width={700}
-                    height={350}
-                    showElectric={showElectric}
-                    showMagnetic={showMagnetic}
-                  />
+                  <div className="w-full h-full flex flex-col">
+                    {/* Toggle 2D/3D pour la vue propagation */}
+                    <div className="flex gap-2 mb-2 flex-shrink-0">
+                      <button
+                        onClick={() => setPropagationView3D(false)}
+                        className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                          !propagationView3D ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                        }`}
+                      >
+                        Vue 2D
+                      </button>
+                      <button
+                        onClick={() => setPropagationView3D(true)}
+                        className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                          propagationView3D ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                        }`}
+                      >
+                        Vue 3D classique
+                      </button>
+                    </div>
+                    <div className="flex-1 flex items-center justify-center min-h-0">
+                      {!propagationView3D ? (
+                        <PropagationCanvas
+                          width={700}
+                          height={350}
+                          showElectric={showElectric}
+                          showMagnetic={showMagnetic}
+                        />
+                      ) : (
+                        <div className="w-full h-full min-h-[350px]">
+                          <EMWave3D
+                            showElectric={showElectric}
+                            showMagnetic={showMagnetic}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 )}
 
                 {viewMode === 'cross-section' && (
@@ -101,12 +143,85 @@ function App() {
                 )}
 
                 {viewMode === '3d' && (
-                  <div className="w-full h-full">
-                    <WaveguideScene
-                      showVectors={showVectors}
-                      showElectric={showElectric}
-                      showMagnetic={showMagnetic}
-                    />
+                  <div className="w-full h-full flex flex-col">
+                    {/* Contrôles spécifiques 3D */}
+                    <div className="flex flex-wrap gap-2 mb-2 flex-shrink-0">
+                      {/* Affichage */}
+                      <div className="flex gap-1 items-center">
+                        <span className="text-xs text-slate-500 mr-1">Affichage:</span>
+                        <button
+                          onClick={() => setShowVectors(!showVectors)}
+                          className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                            showVectors ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                          }`}
+                        >
+                          Vecteurs
+                        </button>
+                        <button
+                          onClick={() => setShowWaveSurface(!showWaveSurface)}
+                          className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                            showWaveSurface ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                          }`}
+                        >
+                          Surface
+                        </button>
+                        <button
+                          onClick={() => setShowFieldLines(!showFieldLines)}
+                          className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                            showFieldLines ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                          }`}
+                        >
+                          Lignes
+                        </button>
+                      </div>
+                      {/* Séparateur */}
+                      <div className="w-px bg-slate-300 mx-1"></div>
+                      {/* Animation */}
+                      <div className="flex gap-1 items-center">
+                        <span className="text-xs text-slate-500 mr-1">Animer:</span>
+                        <button
+                          onClick={() => setAnimateVectors(!animateVectors)}
+                          className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                            animateVectors ? 'bg-green-600 text-white' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                          }`}
+                          title="Animer les vecteurs de champ"
+                        >
+                          Vecteurs
+                        </button>
+                        <button
+                          onClick={() => setAnimateWaves(!animateWaves)}
+                          className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                            animateWaves ? 'bg-green-600 text-white' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                          }`}
+                          title="Animer les formes d'ondes (surface et lignes)"
+                        >
+                          Ondes
+                        </button>
+                      </div>
+                      {/* Séparateur */}
+                      <div className="w-px bg-slate-300 mx-1"></div>
+                      {/* Caméra */}
+                      <button
+                        onClick={() => setAutoRotate(!autoRotate)}
+                        className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                          autoRotate ? 'bg-purple-600 text-white' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                        }`}
+                      >
+                        Rotation auto
+                      </button>
+                    </div>
+                    <div className="flex-1 min-h-0">
+                      <WaveguideScene
+                        showVectors={showVectors}
+                        showElectric={showElectric}
+                        showMagnetic={showMagnetic}
+                        showWaveSurface={showWaveSurface}
+                        showFieldLines={showFieldLines}
+                        autoRotate={autoRotate}
+                        animateVectors={animateVectors}
+                        animateWaves={animateWaves}
+                      />
+                    </div>
                   </div>
                 )}
               </div>

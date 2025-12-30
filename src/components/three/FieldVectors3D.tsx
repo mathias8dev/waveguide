@@ -1,27 +1,77 @@
-import { useMemo } from 'react';
+import { useMemo, useRef, useEffect } from 'react';
 import * as THREE from 'three';
 import { useSimulationStore } from '@/stores/simulationStore';
 
 interface FieldVectors3DProps {
   showElectric?: boolean;
   showMagnetic?: boolean;
+  animated?: boolean;
 }
 
+// Géométries partagées pour les instances
+const SHAFT_GEOMETRY = new THREE.CylinderGeometry(0.0003, 0.0003, 0.002, 6);
+const HEAD_GEOMETRY = new THREE.ConeGeometry(0.0006, 0.001, 6);
+
+// Décaler la géométrie pour que l'origine soit à la base
+SHAFT_GEOMETRY.translate(0, 0.001, 0);
+HEAD_GEOMETRY.translate(0, 0.0025, 0);
+
+// Combiner en une seule géométrie de flèche
+const ARROW_GEOMETRY = new THREE.BufferGeometry();
+const shaftPositions = SHAFT_GEOMETRY.getAttribute('position').array;
+const headPositions = HEAD_GEOMETRY.getAttribute('position').array;
+const combinedPositions = new Float32Array(shaftPositions.length + headPositions.length);
+combinedPositions.set(shaftPositions, 0);
+combinedPositions.set(headPositions, shaftPositions.length);
+ARROW_GEOMETRY.setAttribute('position', new THREE.BufferAttribute(combinedPositions, 3));
+
+// Matériaux
+const ELECTRIC_MATERIAL = new THREE.MeshStandardMaterial({
+  color: '#ef4444',
+  emissive: '#ff0000',
+  emissiveIntensity: 0.3,
+  metalness: 0.5,
+  roughness: 0.5,
+});
+
+const MAGNETIC_MATERIAL = new THREE.MeshStandardMaterial({
+  color: '#3b82f6',
+  emissive: '#0066ff',
+  emissiveIntensity: 0.3,
+  metalness: 0.5,
+  roughness: 0.5,
+});
+
+interface VectorData {
+  position: THREE.Vector3;
+  direction: THREE.Vector3;
+  magnitude: number;
+}
+
+/**
+ * Composant optimisé pour afficher les vecteurs de champ en 3D
+ * Utilise InstancedMesh pour de meilleures performances
+ */
 export function FieldVectors3D({
   showElectric = true,
   showMagnetic = false,
+  animated = true,
 }: FieldVectors3DProps) {
+  const electricRef = useRef<THREE.InstancedMesh>(null);
+  const magneticRef = useRef<THREE.InstancedMesh>(null);
+
   const waveguide = useSimulationStore((state) => state.waveguide);
   const waveguideInstance = useSimulationStore((state) => state.waveguideInstance);
   const mode = useSimulationStore((state) => state.mode);
   const frequency = useSimulationStore((state) => state.frequency);
-  const time = useSimulationStore((state) => state.time);
+  const storeTime = useSimulationStore((state) => state.time);
 
-  const vectors = useMemo(() => {
-    if (!waveguideInstance) return { electric: [], magnetic: [] };
+  // Utiliser le temps animé ou un temps fixe selon la prop
+  const time = animated ? storeTime : 0;
 
-    const electric: { position: THREE.Vector3; direction: THREE.Vector3; magnitude: number }[] = [];
-    const magnetic: { position: THREE.Vector3; direction: THREE.Vector3; magnitude: number }[] = [];
+  // Calculer les positions de base (indépendantes du temps)
+  const gridPositions = useMemo(() => {
+    const positions: { x: number; y: number; z: number }[] = [];
 
     let xMin: number, xMax: number, yMin: number, yMax: number, zLength: number;
 
@@ -48,133 +98,144 @@ export function FieldVectors3D({
         zLength = waveguide.outerRadius * 4;
         break;
       default:
-        return { electric: [], magnetic: [] };
+        return [];
     }
 
-    const resolution = 8;
-    const zResolution = 10;
+    const resolution = 6;
+    const zResolution = 12;
 
     const dx = (xMax - xMin) / resolution;
     const dy = (yMax - yMin) / resolution;
     const dz = zLength / zResolution;
 
+    for (let i = 0; i <= resolution; i++) {
+      for (let j = 0; j <= resolution; j++) {
+        for (let k = 0; k <= zResolution; k++) {
+          positions.push({
+            x: xMin + i * dx,
+            y: yMin + j * dy,
+            z: k * dz,
+          });
+        }
+      }
+    }
+
+    return positions;
+  }, [waveguide]);
+
+  // Calculer les vecteurs de champ
+  const vectors = useMemo(() => {
+    if (!waveguideInstance || gridPositions.length === 0) {
+      return { electric: [] as VectorData[], magnetic: [] as VectorData[] };
+    }
+
+    const electric: VectorData[] = [];
+    const magnetic: VectorData[] = [];
+
     let maxE = 0;
     let maxH = 0;
 
     // Premier passage pour trouver les max
-    const tempData: { x: number; y: number; z: number; field: ReturnType<typeof waveguideInstance.getFieldDistribution> }[] = [];
+    const fields = gridPositions.map(({ x, y, z }) => {
+      const field = waveguideInstance.getFieldDistribution(x, y, z, mode, frequency, time);
+      const eMag = Math.sqrt(field.E.x ** 2 + field.E.y ** 2 + field.E.z ** 2);
+      const hMag = Math.sqrt(field.H.x ** 2 + field.H.y ** 2 + field.H.z ** 2);
 
-    for (let i = 0; i <= resolution; i++) {
-      for (let j = 0; j <= resolution; j++) {
-        for (let k = 0; k <= zResolution; k++) {
-          const x = xMin + i * dx;
-          const y = yMin + j * dy;
-          const z = k * dz;
+      if (eMag > maxE) maxE = eMag;
+      if (hMag > maxH) maxH = hMag;
 
-          const field = waveguideInstance.getFieldDistribution(x, y, z, mode, frequency, time);
+      return { x, y, z, field, eMag, hMag };
+    });
 
-          const eMag = Math.sqrt(field.E.x ** 2 + field.E.y ** 2 + field.E.z ** 2);
-          const hMag = Math.sqrt(field.H.x ** 2 + field.H.y ** 2 + field.H.z ** 2);
-
-          if (eMag > maxE) maxE = eMag;
-          if (hMag > maxH) maxH = hMag;
-
-          tempData.push({ x, y, z, field });
-        }
-      }
-    }
-
-    // Deuxième passage pour créer les vecteurs normalisés
-    for (const { x, y, z, field } of tempData) {
-      if (showElectric && maxE > 0) {
-        const eMag = Math.sqrt(field.E.x ** 2 + field.E.y ** 2 + field.E.z ** 2);
-
-        if (eMag > maxE * 0.05) {
-          electric.push({
-            position: new THREE.Vector3(x, y, z),
-            direction: new THREE.Vector3(field.E.x, field.E.y, field.E.z).normalize(),
-            magnitude: eMag / maxE,
-          });
-        }
+    // Deuxième passage pour créer les vecteurs
+    for (const { x, y, z, field, eMag, hMag } of fields) {
+      if (showElectric && maxE > 0 && eMag > maxE * 0.08) {
+        electric.push({
+          position: new THREE.Vector3(x, y, z),
+          direction: new THREE.Vector3(field.E.x, field.E.y, field.E.z).normalize(),
+          magnitude: eMag / maxE,
+        });
       }
 
-      if (showMagnetic && maxH > 0) {
-        const hMag = Math.sqrt(field.H.x ** 2 + field.H.y ** 2 + field.H.z ** 2);
-
-        if (hMag > maxH * 0.05) {
-          magnetic.push({
-            position: new THREE.Vector3(x, y, z),
-            direction: new THREE.Vector3(field.H.x, field.H.y, field.H.z).normalize(),
-            magnitude: hMag / maxH,
-          });
-        }
+      if (showMagnetic && maxH > 0 && hMag > maxH * 0.08) {
+        magnetic.push({
+          position: new THREE.Vector3(x, y, z),
+          direction: new THREE.Vector3(field.H.x, field.H.y, field.H.z).normalize(),
+          magnitude: hMag / maxH,
+        });
       }
     }
 
     return { electric, magnetic };
-  }, [waveguide, waveguideInstance, mode, frequency, time, showElectric, showMagnetic]);
+  }, [waveguideInstance, gridPositions, mode, frequency, time, showElectric, showMagnetic]);
 
-  const scale = 0.003; // Échelle des vecteurs
+  // Mettre à jour les matrices des instances
+  useEffect(() => {
+    const tempMatrix = new THREE.Matrix4();
+    const tempQuaternion = new THREE.Quaternion();
+    const upVector = new THREE.Vector3(0, 1, 0);
+    const scale = 0.8;
+
+    if (electricRef.current && showElectric) {
+      vectors.electric.forEach((vec, i) => {
+        tempQuaternion.setFromUnitVectors(upVector, vec.direction);
+        const vectorScale = vec.magnitude * scale;
+
+        tempMatrix.compose(
+          vec.position,
+          tempQuaternion,
+          new THREE.Vector3(vectorScale, vectorScale, vectorScale)
+        );
+
+        electricRef.current!.setMatrixAt(i, tempMatrix);
+      });
+      electricRef.current.count = vectors.electric.length;
+      electricRef.current.instanceMatrix.needsUpdate = true;
+    }
+
+    if (magneticRef.current && showMagnetic) {
+      vectors.magnetic.forEach((vec, i) => {
+        tempQuaternion.setFromUnitVectors(upVector, vec.direction);
+        const vectorScale = vec.magnitude * scale;
+
+        tempMatrix.compose(
+          vec.position,
+          tempQuaternion,
+          new THREE.Vector3(vectorScale, vectorScale, vectorScale)
+        );
+
+        magneticRef.current!.setMatrixAt(i, tempMatrix);
+      });
+      magneticRef.current.count = vectors.magnetic.length;
+      magneticRef.current.instanceMatrix.needsUpdate = true;
+    }
+  }, [vectors, showElectric, showMagnetic]);
+
+  const maxInstances = gridPositions.length;
 
   return (
     <group>
-      {/* Vecteurs du champ électrique */}
-      {vectors.electric.map((vec, i) => (
-        <Arrow
-          key={`e-${i}`}
-          position={vec.position}
-          direction={vec.direction}
-          length={vec.magnitude * scale}
-          color="#ef4444"
-        />
-      ))}
+      {showElectric && (
+        <instancedMesh
+          ref={electricRef}
+          args={[SHAFT_GEOMETRY, ELECTRIC_MATERIAL, maxInstances]}
+          frustumCulled={false}
+        >
+          <primitive object={SHAFT_GEOMETRY} attach="geometry" />
+          <primitive object={ELECTRIC_MATERIAL} attach="material" />
+        </instancedMesh>
+      )}
 
-      {/* Vecteurs du champ magnétique */}
-      {vectors.magnetic.map((vec, i) => (
-        <Arrow
-          key={`h-${i}`}
-          position={vec.position}
-          direction={vec.direction}
-          length={vec.magnitude * scale}
-          color="#3b82f6"
-        />
-      ))}
-    </group>
-  );
-}
-
-interface ArrowProps {
-  position: THREE.Vector3;
-  direction: THREE.Vector3;
-  length: number;
-  color: string;
-}
-
-function Arrow({ position, direction, length, color }: ArrowProps) {
-  const quaternion = useMemo(() => {
-    const quaternion = new THREE.Quaternion();
-    quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
-    return quaternion;
-  }, [direction]);
-
-  const shaftLength = length * 0.7;
-  const headLength = length * 0.3;
-  const shaftRadius = length * 0.05;
-  const headRadius = length * 0.15;
-
-  return (
-    <group position={position} quaternion={quaternion}>
-      {/* Shaft */}
-      <mesh position={[0, shaftLength / 2, 0]}>
-        <cylinderGeometry args={[shaftRadius, shaftRadius, shaftLength, 8]} />
-        <meshStandardMaterial color={color} />
-      </mesh>
-
-      {/* Head */}
-      <mesh position={[0, shaftLength + headLength / 2, 0]}>
-        <coneGeometry args={[headRadius, headLength, 8]} />
-        <meshStandardMaterial color={color} />
-      </mesh>
+      {showMagnetic && (
+        <instancedMesh
+          ref={magneticRef}
+          args={[SHAFT_GEOMETRY, MAGNETIC_MATERIAL, maxInstances]}
+          frustumCulled={false}
+        >
+          <primitive object={SHAFT_GEOMETRY} attach="geometry" />
+          <primitive object={MAGNETIC_MATERIAL} attach="material" />
+        </instancedMesh>
+      )}
     </group>
   );
 }

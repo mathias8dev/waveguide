@@ -133,7 +133,7 @@ export function ControlPanel() {
           label="Fréquence"
           value={frequency}
           min={1e9}
-          max={30e9}
+          max={100e9}
           step={0.1e9}
           formatValue={formatFrequency}
           onChange={setFrequency}
